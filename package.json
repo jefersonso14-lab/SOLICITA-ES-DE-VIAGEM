@@ -14,7 +14,9 @@
     "react": "latest",
     "react-dom": "latest",
     "@supabase/supabase-js": "2.117.2",
-    "xlsx": "0.18.5"
+    "xlsx": "0.18.5",
+    "pdfjs-dist": "6.3.289",
+    "tesseract.js": "7.0.0"
   },
   "devDependencies": {}
 }
