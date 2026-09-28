@@ -66,118 +66,70 @@ function RequestDossier({requestId,onBack}){
 function DossierSummary({data,collabs}){return <div className="dossier-grid"><article className="panel"><span className="eyebrow">IDENTIFICAÇÃO</span><h3>Dados da viagem</h3><div className="detail-grid"><div><small>OS</small><b>{data.os}</b></div><div><small>Gestor</small><b>{data.manager_name||"—"}</b></div><div><small>Destino</small><b>{data.city||"—"}{data.state?" / "+data.state:""}</b></div><div><small>Período</small><b>{data.start_date} → {data.end_date}</b></div><div><small>Duração</small><b>{data.days} dia(s)</b></div><div><small>Status</small><b>{data.status}</b></div></div></article><article className="panel"><span className="eyebrow">EQUIPE</span><h3>Colaboradores ({collabs.length})</h3>{collabs.length?collabs.map(c=><div className="person-row" key={c.id}><div className="avatar small">{c.name.slice(0,2).toUpperCase()}</div><div><b>{c.name}</b><small>{c.cpf||"CPF não informado"}</small></div></div>):<p className="muted">Nenhum colaborador vinculado.</p>}</article><article className="panel"><span className="eyebrow">EXECUÇÃO</span><h3>Composição da viagem</h3><div className="dossier-checks"><div>○ Passagens <span>Aguardando lançamento</span></div><div>○ Hospedagem <span>Aguardando lançamento</span></div><div>○ Veículo <span>Aguardando lançamento</span></div><div>○ Despesas <span>Aguardando lançamento</span></div><div>○ Comprovantes <span>Aguardando anexos</span></div></div></article></div>}
 
 function AttachmentsTab({requestId}) {
- const [rows,setRows]=useState([]),[busy,setBusy]=useState(false),[progress,setProgress]=useState(""),[error,setError]=useState(""),[message,setMessage]=useState(""),[preview,setPreview]=useState(null),[role,setRole]=useState("");
+ const [rows,setRows]=useState([]),[busy,setBusy]=useState(false),[progress,setProgress]=useState(""),[error,setError]=useState(""),[message,setMessage]=useState(""),[preview,setPreview]=useState(null),[role,setRole]=useState(""),[collaborators,setCollaborators]=useState([]);
  useEffect(()=>{load()},[requestId]);
- async function load(){const {data,error}=await supabase.from("attachments").select("id,file_name,mime_type,file_size,extraction_status,extracted_data,storage_path,created_at").eq("travel_request_id",requestId).order("created_at",{ascending:false});if(error)setError("Não foi possível carregar os anexos.");else setRows(data||[]);const {data:u}=await supabase.auth.getUser();if(u.user){const p=await supabase.from("profiles").select("role").eq("id",u.user.id).maybeSingle();setRole(p.data?.role||"requester")}}
+ async function load(){
+   const {data,error}=await supabase.from("attachments").select("id,file_name,mime_type,file_size,extraction_status,extracted_data,storage_path,created_at").eq("travel_request_id",requestId).order("created_at",{ascending:false});
+   if(error)setError("Não foi possível carregar os anexos.");else setRows(data||[]);
+   const {data:c}=await supabase.from("collaborators").select("id,name").eq("active",true).order("name");setCollaborators(c||[]);
+   const {data:u}=await supabase.auth.getUser();if(u.user){const p=await supabase.from("profiles").select("role").eq("id",u.user.id).maybeSingle();setRole(p.data?.role||"requester")}
+ }
  function fmt(n){return !n?"—":n<1048576?(n/1024).toFixed(1)+" KB":(n/1048576).toFixed(1)+" MB"}
- function normalize(v){return String(v??"").trim().toLowerCase().normalize("NFD").replace(/[\\u0300-\\u036f]/g,"")}
- function num(v){if(typeof v==="number")return v;let s=String(v??"").replace(/R\\$|\\s/g,"");if(s.includes(",")&&s.includes("."))s=s.replace(/\\./g,"").replace(",",".");else s=s.replace(",",".");const n=Number(s.replace(/[^0-9.-]/g,""));return Number.isFinite(n)?n:0}
- function date(v){if(v instanceof Date)return v.toISOString().slice(0,10);if(typeof v==="number"){const d=XLSX.SSF.parse_date_code(v);return d?new Date(Date.UTC(d.y,d.m-1,d.d)).toISOString().slice(0,10):null}const s=String(v??"").trim();const m=s.match(/^(\\d{1,2})[\\/-](\\d{1,2})[\\/-](\\d{2,4})$/);if(m)return (m[3].length===2?"20"+m[3]:m[3])+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0");return /^\\d{4}-\\d{2}-\\d{2}$/.test(s)?s:null}
+ function normalize(v){return String(v??"").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")}
+ function num(v){if(typeof v==="number")return v;let s=String(v??"").replace(/R\$|\s/g,"");if(s.includes(",")&&s.includes("."))s=s.replace(/\./g,"").replace(",",".");else s=s.replace(",",".");const n=Number(s.replace(/[^0-9.-]/g,""));return Number.isFinite(n)?n:0}
+ function date(v){if(v instanceof Date)return v.toISOString().slice(0,10);if(typeof v==="number"){const d=XLSX.SSF.parse_date_code(v);return d?new Date(Date.UTC(d.y,d.m-1,d.d)).toISOString().slice(0,10):null}const s=String(v??"").trim();const m=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);if(m)return (m[3].length===2?"20"+m[3]:m[3])+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0");return /^\d{4}-\d{2}-\d{2}$/.test(s)?s:null}
  function category(v){const x=normalize(v);if(/pass|ticket|aereo|onibus/.test(x))return "ticket";if(/hotel|hosped/.test(x))return "hotel";if(/bagag/.test(x))return "baggage";if(/veicul|locac/.test(x))return "vehicle";if(/pedag/.test(x))return "toll";if(/estacion/.test(x))return "parking";if(/combust|gasolina/.test(x))return "fuel";if(/refeic|almoco|jantar|cafe/.test(x))return "meal";if(/lavander/.test(x))return "laundry";if(/uber|99|taxi|transporte/.test(x))return "uber";return "other"}
  function extractRows(text){
-   const lines=String(text||"").split(/\\r?\\n/).map(x=>x.trim()).filter(Boolean);
-   const rows=[]; let currentCategory="other";
-   for(let i=0;i<lines.length;i++){
-     const line=lines[i], x=normalize(line);
-     const cat=category(line); if(cat!=="other") currentCategory=cat;
-     const amounts=line.match(/(?:R\\$\\s*)?-?\\d{1,3}(?:[.\\s]\\d{3})*(?:,\\d{2})|-?\\d+(?:[.,]\\d{2})/g)||[];
-     const amount=amounts.length?Math.max(...amounts.map(num)):0;
-     const dates=line.match(/\\b\\d{1,2}[\\/-]\\d{1,2}[\\/-]\\d{2,4}\\b|\\b\\d{4}-\\d{2}-\\d{2}\\b/g)||[];
-     const collaboratorMatch=line.match(/(?:colaborador|passageiro|hospede|nome)\\s*[:=-]\\s*([^|;]+)/i);
-     const collaborator_name=collaboratorMatch?.[1]?.trim()||"";
-     if(amount>0){
-       const desc=line.replace(amounts.join(" "), " ").replace(/\\s{2,}/g," ").trim();
-       rows.push({line:i+1,category:currentCategory,description:desc.slice(0,240),collaborator_name,cost_date:dates.length?date(dates[0]):null,amount});
-     }
-   }
-   return rows;
+   const lines=String(text||"").split(/\r?\n/).map(x=>x.trim()).filter(Boolean);const out=[];let currentCategory="other";
+   for(let i=0;i<lines.length;i++){const line=lines[i],cat=category(line);if(cat!=="other")currentCategory=cat;const amounts=line.match(/(?:R\$\s*)?-?\d{1,3}(?:[.\s]\d{3})*(?:,\d{2})|-?\d+(?:[.,]\d{2})/g)||[];const amount=amounts.length?Math.max(...amounts.map(num)):0;const dates=line.match(/\b\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}\b|\b\d{4}-\d{2}-\d{2}\b/g)||[];const collaboratorMatch=line.match(/(?:colaborador|passageiro|hospede|nome)\s*[:=-]\s*([^|;]+)/i);const collaborator_name=collaboratorMatch?.[1]?.trim()||"";if(amount>0){const desc=line.replace(amounts.join(" ")," ").replace(/\s{2,}/g," ").trim();out.push({line:i+1,category:currentCategory,description:desc.slice(0,240),collaborator_name,cost_date:dates.length?date(dates[0]):null,amount,selected:true})}}
+   return out;
  }
  async function readPdf(file){
-   const pdfjs=await import("pdfjs-dist");
-   const workerModule=await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
-   pdfjs.GlobalWorkerOptions.workerSrc=workerModule.default;
-   const buffer=await file.arrayBuffer();
-   const pdf=await pdfjs.getDocument({data:buffer}).promise;
-   const maxPages=Math.min(pdf.numPages,15);
-   let text="";
-   for(let pageNo=1;pageNo<=maxPages;pageNo++){
-     setProgress("Lendo PDF — página "+pageNo+" de "+maxPages);
-     const page=await pdf.getPage(pageNo);
-     const content=await page.getTextContent();
-     text+=content.items.map(item=>item.str||"").join(" ")+"\\n";
-   }
-   if(text.replace(/\\s/g,"").length>=80)return {text,method:"pdf-text",pages:pdf.numPages};
-   const worker=await createOcrWorker();
-   let ocr="";
-   for(let pageNo=1;pageNo<=maxPages;pageNo++){
-     setProgress("OCR do PDF — página "+pageNo+" de "+maxPages);
-     const page=await pdf.getPage(pageNo);
-     const viewport=page.getViewport({scale:1.5});
-     const canvas=document.createElement("canvas"); canvas.width=Math.ceil(viewport.width); canvas.height=Math.ceil(viewport.height);
-     await page.render({canvasContext:canvas.getContext("2d"),viewport}).promise;
-     const result=await worker.recognize(canvas);
-     ocr+=result.data.text+"\\n";
-   }
-   await worker.terminate();
-   return {text:ocr,method:"pdf-ocr",pages:pdf.numPages};
+   const pdfjs=await import("pdfjs-dist");const workerModule=await import("pdfjs-dist/build/pdf.worker.min.mjs?url");pdfjs.GlobalWorkerOptions.workerSrc=workerModule.default;const buffer=await file.arrayBuffer();const pdf=await pdfjs.getDocument({data:buffer}).promise;const maxPages=Math.min(pdf.numPages,15);let text="";
+   for(let pageNo=1;pageNo<=maxPages;pageNo++){setProgress("Lendo PDF — página "+pageNo+" de "+maxPages);const page=await pdf.getPage(pageNo);const content=await page.getTextContent();text+=content.items.map(item=>item.str||"").join(" ")+"\n"}
+   if(text.replace(/\s/g,"").length>=80)return {text,method:"pdf-text",pages:pdf.numPages};
+   const worker=await createOcrWorker();let ocr="";for(let pageNo=1;pageNo<=maxPages;pageNo++){setProgress("OCR do PDF — página "+pageNo+" de "+maxPages);const page=await pdf.getPage(pageNo);const viewport=page.getViewport({scale:1.5});const canvas=document.createElement("canvas");canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);await page.render({canvasContext:canvas.getContext("2d"),viewport}).promise;const result=await worker.recognize(canvas);ocr+=result.data.text+"\n"}await worker.terminate();return {text:ocr,method:"pdf-ocr",pages:pdf.numPages};
  }
- async function createOcrWorker(){
-   const {createWorker}=await import("tesseract.js");
-   return createWorker("por");
- }
- async function readImage(file){
-   const worker=await createOcrWorker();
-   setProgress("Executando OCR da imagem…");
-   const result=await worker.recognize(file);
-   await worker.terminate();
-   return {text:result.data.text,method:"image-ocr",pages:1};
- }
- async function extractAttachment(file){
-   if(/\\.(xlsx?|csv)$/i.test(file.name))return null;
-   if(file.type==="application/pdf"||/\\.pdf$/i.test(file.name))return readPdf(file);
-   if(/^image\\//.test(file.type)||/\\.(jpe?g|png)$/i.test(file.name))return readImage(file);
-   return null;
- }
+ async function createOcrWorker(){const {createWorker}=await import("tesseract.js");return createWorker("por")}
+ async function readImage(file){const worker=await createOcrWorker();setProgress("Executando OCR da imagem…");const result=await worker.recognize(file);await worker.terminate();return {text:result.data.text,method:"image-ocr",pages:1}}
+ async function extractAttachment(file){if(/\.(xlsx?|csv)$/i.test(file.name))return null;if(file.type==="application/pdf"||/\.pdf$/i.test(file.name))return readPdf(file);if(/^image\//.test(file.type)||/\.(jpe?g|png)$/i.test(file.name))return readImage(file);return null}
  async function upload(e){
-   const files=[...(e.target.files||[])]; if(!files.length)return;
-   setBusy(true);setError("");setMessage("");
-   try{
-     for(const file of files){
-       if(file.size>20*1024*1024){setError("O arquivo "+file.name+" ultrapassa o limite de 20 MB.");continue}
-       const {data:u}=await supabase.auth.getUser(); if(!u.user)throw new Error("Sessão expirada.");
-       const path=u.user.id+"/"+Date.now()+"-"+file.name.replace(/[^a-zA-Z0-9._-]/g,"_");
-       const up=await supabase.storage.from("travel-attachments").upload(path,file,{contentType:file.type||"application/octet-stream",upsert:false});
-       if(up.error)throw up.error;
-       const ins=await supabase.from("attachments").insert({travel_request_id:requestId,file_name:file.name,mime_type:file.type,file_size:file.size,storage_path:path,uploaded_by:u.user.id,extraction_status:"pending"}).select("id").single();
-       if(ins.error){await supabase.storage.from("travel-attachments").remove([path]);throw ins.error}
-       let extracted=null;
-       try{
-         extracted=await extractAttachment(file);
-         if(extracted){
-           const rows=extractRows(extracted.text);
-           await supabase.from("attachments").update({extracted_data:{source:extracted.method,pages:extracted.pages,text:extracted.text.slice(0,20000),rows}}).eq("id",ins.data.id);
-           await supabase.from("attachments").update({extraction_status:"extracted"}).eq("id",ins.data.id);
-         } else if(/\\.(xlsx?|csv)$/i.test(file.name)){
-           const buffer=await file.arrayBuffer(); const wb=XLSX.read(buffer,{type:"array",cellDates:true}); const ws=wb.Sheets[wb.SheetNames[0]]; const json=XLSX.utils.sheet_to_json(ws,{defval:""}); const rows=json.map((r,i)=>{const keys=Object.keys(r);const find=k=>keys.find(key=>normalize(key).includes(k));const amountKey=find("valor")||find("amount")||find("custo")||find("cost")||find("preco")||find("total");const catKey=find("categoria")||find("category")||find("tipo");const dateKey=find("data")||find("date");const descKey=find("descricao")||find("description")||find("historico")||find("detalhe");const collabKey=find("colaborador")||find("passageiro")||find("nome");return {line:i+2,category:category(r[catKey]),description:String(r[descKey]||""),collaborator_name:String(r[collabKey]||""),cost_date:date(r[dateKey]),amount:num(r[amountKey])}}).filter(x=>x.amount>0||x.description||x.collaborator_name);await supabase.from("attachments").update({extracted_data:{source:"spreadsheet",rows}}).eq("id",ins.data.id);await supabase.from("attachments").update({extraction_status:"extracted"}).eq("id",ins.data.id)}
-       }catch(ex){await supabase.from("attachments").update({extracted_data:{source:"extraction-error",error:ex.message}}).eq("id",ins.data.id);setError("O arquivo "+file.name+" foi anexado, mas a leitura automática falhou: "+ex.message)}
-       setProgress("");
-     }
-     await load();
-   }catch(ex){setError("Não foi possível processar os anexos: "+ex.message)}finally{setBusy(false);setProgress("");e.target.value=""}
+   const files=[...(e.target.files||[])];if(!files.length)return;setBusy(true);setError("");setMessage("");
+   try{for(const file of files){if(file.size>20*1024*1024){setError("O arquivo "+file.name+" ultrapassa o limite de 20 MB.");continue}const {data:u}=await supabase.auth.getUser();if(!u.user)throw new Error("Sessão expirada.");const path=u.user.id+"/"+Date.now()+"-"+file.name.replace(/[^a-zA-Z0-9._-]/g,"_");const up=await supabase.storage.from("travel-attachments").upload(path,file,{contentType:file.type||"application/octet-stream",upsert:false});if(up.error)throw up.error;const ins=await supabase.from("attachments").insert({travel_request_id:requestId,file_name:file.name,mime_type:file.type,file_size:file.size,storage_path:path,uploaded_by:u.user.id,extraction_status:"pending"}).select("id").single();if(ins.error){await supabase.storage.from("travel-attachments").remove([path]);throw ins.error}
+     try{const extracted=await extractAttachment(file);if(extracted){const extractedRows=extractRows(extracted.text);await supabase.from("attachments").update({extracted_data:{source:extracted.method,pages:extracted.pages,text:extracted.text.slice(0,20000),rows:extractedRows},extraction_status:"extracted"}).eq("id",ins.data.id)}else if(/\.(xlsx?|csv)$/i.test(file.name)){const buffer=await file.arrayBuffer();const wb=XLSX.read(buffer,{type:"array",cellDates:true});const ws=wb.Sheets[wb.SheetNames[0]];const json=XLSX.utils.sheet_to_json(ws,{defval:""});const extractedRows=json.map((r,i)=>{const keys=Object.keys(r),find=k=>keys.find(key=>normalize(key).includes(k)),amountKey=find("valor")||find("amount")||find("custo")||find("cost")||find("preco")||find("total"),catKey=find("categoria")||find("category")||find("tipo"),dateKey=find("data")||find("date"),descKey=find("descricao")||find("description")||find("historico")||find("detalhe"),collabKey=find("colaborador")||find("passageiro")||find("nome");return {line:i+2,category:category(r[catKey]),description:String(r[descKey]||""),collaborator_name:String(r[collabKey]||""),cost_date:date(r[dateKey]),amount:num(r[amountKey]),selected:true}}).filter(x=>x.amount>0||x.description||x.collaborator_name);await supabase.from("attachments").update({extracted_data:{source:"spreadsheet",rows:extractedRows},extraction_status:"extracted"}).eq("id",ins.data.id)}}
+     catch(ex){await supabase.from("attachments").update({extracted_data:{source:"extraction-error",error:ex.message}}).eq("id",ins.data.id);setError("O arquivo "+file.name+" foi anexado, mas a leitura automática falhou: "+ex.message)}
+     setProgress("")}await load()}catch(ex){setError("Não foi possível processar os anexos: "+ex.message)}finally{setBusy(false);setProgress("");e.target.value=""}
  }
  async function openFile(row){const {data,error}=await supabase.storage.from("travel-attachments").createSignedUrl(row.storage_path,300);if(error)setError("Não foi possível abrir o arquivo.");else window.open(data.signedUrl,"_blank","noopener,noreferrer")}
- async function confirmImport(row){
-   if(!(role==="admin"||role==="manager"))return;
-   const rows=row.extracted_data?.rows||[]; if(!rows.length){setError("Nenhum lançamento financeiro foi identificado.");return}
-   const {data:collabsData}=await supabase.from("collaborators").select("id,name"); const collaboratorMap=Object.fromEntries((collabsData||[]).map(c=>[normalize(c.name),c.id]));
-   const {data:u}=await supabase.auth.getUser();
-   const payload=rows.filter(x=>x.amount>0).map(x=>({travel_request_id:requestId,category:x.category||"other",description:x.description||("Importação: "+row.file_name),amount:x.amount,cost_date:x.cost_date||null,collaborator_id:collaboratorMap[normalize(x.collaborator_name)]||null,source:"attachment:"+row.id,created_by:u.user.id}));
-   const ins=await supabase.from("costs").insert(payload); if(ins.error){setError("Não foi possível confirmar os custos: "+ins.error.message);return}
-   const upd=await supabase.from("attachments").update({extraction_status:"confirmed"}).eq("id",row.id); if(upd.error){setError("Custos lançados, mas o status não foi atualizado.");return}
+ function beginReview(row){const sourceRows=(row.extracted_data?.rows||[]).map(x=>({...x,selected:x.selected!==false}));setPreview({...row,reviewRows:sourceRows})}
+ function updateReview(index,field,value){setPreview(p=>({...p,reviewRows:p.reviewRows.map((r,i)=>i===index?{...r,[field]:field==="amount"?num(value):value}:r)}))}
+ function toggleReview(index){setPreview(p=>({...p,reviewRows:p.reviewRows.map((r,i)=>i===index?{...r,selected:!r.selected}:r)}))}
+ function selectAll(value){setPreview(p=>({...p,reviewRows:p.reviewRows.map(r=>({...r,selected:value}))}))}
+ function validation(row){
+   const active=row.reviewRows.filter(x=>x.selected);
+   const invalidAmount=active.filter(x=>!(Number(x.amount)>0));
+   const missingDate=active.filter(x=>!x.cost_date);
+   const unknownCollaborator=active.filter(x=>x.collaborator_name&&!collaborators.some(c=>normalize(c.name)===normalize(x.collaborator_name)));
+   return {active,invalidAmount,missingDate,unknownCollaborator};
+ }
+ async function saveReview(){
+   if(!preview)return;setBusy(true);setError("");const payload={...preview,extracted_data:{...preview.extracted_data,rows:preview.reviewRows}};const {error}=await supabase.from("attachments").update({extracted_data:payload.extracted_data}).eq("id",preview.id);if(error){setError("Não foi possível salvar a conferência.");setBusy(false);return}setRows(r=>r.map(x=>x.id===preview.id?{...x,...payload}:x));setPreview(payload);setMessage("✓ Conferência salva. Nenhum custo foi lançado.");setBusy(false)
+ }
+ async function confirmImport(){
+   if(!preview||(role!=="admin"&&role!=="manager"))return;
+   const check=validation(preview);if(!check.active.length){setError("Selecione pelo menos um lançamento.");return}
+   if(check.invalidAmount.length||check.missingDate.length||check.unknownCollaborator.length){setError("Corrija as inconsistências antes de confirmar: "+(check.invalidAmount.length?check.invalidAmount.length+" valor(es) inválido(s); ":"")+(check.missingDate.length?check.missingDate.length+" data(s) ausente(s); ":"")+(check.unknownCollaborator.length?check.unknownCollaborator.length+" colaborador(es) não localizado(s).":""));return}
+   const {data:u}=await supabase.auth.getUser();const source="attachment:"+preview.id;const existing=await supabase.from("costs").select("id").eq("source",source).limit(1);if(existing.data?.length){setError("Este arquivo já foi confirmado no consolidado. Evite lançamento duplicado.");return}
+   const collaboratorMap=Object.fromEntries(collaborators.map(c=>[normalize(c.name),c.id]));
+   const payload=check.active.map(x=>({travel_request_id:requestId,category:x.category||"other",description:x.description||("Importação: "+preview.file_name),amount:Number(x.amount),cost_date:x.cost_date,collaborator_id:collaboratorMap[normalize(x.collaborator_name)]||null,source,created_by:u.user.id}));
+   const ins=await supabase.from("costs").insert(payload);if(ins.error){setError("Não foi possível confirmar os custos: "+ins.error.message);return}
+   const upd=await supabase.from("attachments").update({extracted_data:{...preview.extracted_data,rows:preview.reviewRows},extraction_status:"confirmed"}).eq("id",preview.id);if(upd.error){setError("Custos lançados, mas o status do anexo não foi atualizado.");return}
    setMessage("✓ "+payload.length+" lançamento(s) confirmado(s) no consolidado.");await load();setPreview(null)
  }
  async function remove(row){if(!confirm("Excluir o anexo “"+row.file_name+"”?"))return;await supabase.storage.from("travel-attachments").remove([row.storage_path]);await supabase.from("attachments").delete().eq("id",row.id);load()}
- return <div className="attachments-module"><div className="panel upload-panel"><div className="panel-head"><div><span className="eyebrow">COMPROVANTES / IMPORTAÇÃO</span><h3>Anexos da OS</h3><p className="muted">PDF, Excel, CSV, JPG e PNG · até 20 MB.</p></div><label className="primary upload-btn">＋ Adicionar arquivos<input type="file" multiple accept=".pdf,.xls,.xlsx,.csv,.jpg,.jpeg,.png" onChange={upload} disabled={busy}/></label></div>{busy&&<div className="alert">{progress||"Processando arquivo…"}</div>}{message&&<div className="success-note">{message}</div>}{error&&<div className="alert">⚠ {error}</div>}<div className="attachment-list">{rows.length?rows.map(r=><div className="attachment-row" key={r.id}><div className="file-icon">{/\\.(xlsx?|csv)$/i.test(r.file_name)?"XLS":"DOC"}</div><div className="file-main"><b>{r.file_name}</b><small>{fmt(r.file_size)} · {new Date(r.created_at).toLocaleString("pt-BR")}</small></div><span className="extract-status">{r.extraction_status==="pending"?"● Aguardando leitura":r.extraction_status==="extracted"?"● Pronto para conferência":r.extraction_status==="confirmed"?"● Confirmado":"● "+r.extraction_status}</span><div className="file-actions"><button className="text-btn" onClick={()=>openFile(r)}>Abrir</button>{r.extraction_status==="extracted"&&<button className="text-btn" onClick={()=>setPreview(r)}>Conferir</button>}<button className="danger-btn" onClick={()=>remove(r)}>Excluir</button></div></div>):<div className="empty">Nenhum comprovante anexado a esta OS.</div>}</div></div>{preview&&<div className="panel extraction-panel"><div className="panel-head"><div><span className="eyebrow">CONFERÊNCIA FINANCEIRA</span><h3>{preview.file_name}</h3></div><button className="close" onClick={()=>setPreview(null)}>×</button></div><p className="muted">Revise os valores abaixo. A confirmação cria registros no consolidado de custos.</p><div className="import-summary"><b>{preview.extracted_data?.rows?.length||0}</b><span>linhas identificadas</span><b>R$ {(preview.extracted_data?.rows||[]).reduce((s,x)=>s+(x.amount||0),0).toLocaleString("pt-BR",{minimumFractionDigits:2})}</b><span>valor identificado</span></div><div className="import-table">{(preview.extracted_data?.rows||[]).slice(0,100).map((x,i)=><div className="import-row" key={i}><span>{x.line}</span><span>{x.category}</span><span>{x.description||"—"}</span><span>{x.collaborator_name||"—"}</span><b>R$ {(x.amount||0).toLocaleString("pt-BR",{minimumFractionDigits:2})}</b></div>)}</div>{(preview.extracted_data?.rows||[]).length>100&&<small className="muted">Exibindo as primeiras 100 linhas.</small>}{(role==="admin"||role==="manager")?<button className="primary full" onClick={()=>confirmImport(preview)}>Confirmar e lançar no consolidado</button>:<div className="alert">ℹ A confirmação financeira é realizada por gestor ou administrador.</div>}</div>}</div>
+ const review=preview?validation(preview):{active:[],invalidAmount:[],missingDate:[],unknownCollaborator:[]};
+ const reviewTotal=review.active.reduce((s,x)=>s+Number(x.amount||0),0);
+ return <div className="attachments-module"><div className="panel upload-panel"><div className="panel-head"><div><span className="eyebrow">COMPROVANTES / IMPORTAÇÃO</span><h3>Anexos da OS</h3><p className="muted">PDF, Excel, CSV, JPG e PNG · até 20 MB.</p></div><label className="primary upload-btn">＋ Adicionar arquivos<input type="file" multiple accept=".pdf,.xls,.xlsx,.csv,.jpg,.jpeg,.png" onChange={upload} disabled={busy}/></label></div>{busy&&<div className="alert">{progress||"Processando…"}</div>}{message&&<div className="success-note">{message}</div>}{error&&<div className="alert">⚠ {error}</div>}<div className="attachment-list">{rows.length?rows.map(r=><div className="attachment-row" key={r.id}><div className="file-icon">{/\.(xlsx?|csv)$/i.test(r.file_name)?"XLS":"DOC"}</div><div className="file-main"><b>{r.file_name}</b><small>{fmt(r.file_size)} · {new Date(r.created_at).toLocaleString("pt-BR")}</small></div><span className="extract-status">{r.extraction_status==="pending"?"● Aguardando leitura":r.extraction_status==="extracted"?"● Pronto para conferência":r.extraction_status==="confirmed"?"● Confirmado":"● "+r.extraction_status}</span><div className="file-actions"><button className="text-btn" onClick={()=>openFile(r)}>Abrir</button>{r.extraction_status==="extracted"&&<button className="text-btn" onClick={()=>beginReview(r)}>Conferir</button>}<button className="danger-btn" onClick={()=>remove(r)}>Excluir</button></div></div>):<div className="empty">Nenhum comprovante anexado a esta OS.</div>}</div></div>{preview&&<div className="panel extraction-panel"><div className="panel-head"><div><span className="eyebrow">CONFERÊNCIA FINANCEIRA</span><h3>{preview.file_name}</h3></div><button className="close" onClick={()=>setPreview(null)}>×</button></div><p className="muted">Edite os dados, selecione apenas os lançamentos válidos e vincule colaboradores. A confirmação financeira é a última etapa.</p><div className="import-summary"><b>{review.active.length}</b><span>lançamentos selecionados</span><b>R$ {reviewTotal.toLocaleString("pt-BR",{minimumFractionDigits:2})}</b><span>total selecionado</span></div>{review.invalidAmount.length||review.missingDate.length||review.unknownCollaborator.length?<div className="alert">⚠ Existem inconsistências. Valores inválidos, datas ausentes e colaboradores não localizados devem ser corrigidos antes da confirmação.</div>:null}<div className="review-toolbar"><label className="inline-check"><input type="checkbox" checked={review.active.length===preview.reviewRows.length&&preview.reviewRows.length>0} onChange={e=>selectAll(e.target.checked)}/> Selecionar todos</label><span>{review.active.length} de {preview.reviewRows.length}</span></div><div className="import-table review-table"><div className="import-row review-head"><span>Usar</span><span>Categoria</span><span>Data</span><span>Descrição</span><span>Colaborador</span><span>Valor</span></div>{preview.reviewRows.slice(0,100).map((x,i)=><div className={["import-row","review-row",(x.selected?"":"row-disabled"),((!Number(x.amount)>0)||!x.cost_date||(x.collaborator_name&&!collaborators.some(c=>normalize(c.name)===normalize(x.collaborator_name))))?"row-invalid":""].join(" ")} key={i}><span><input type="checkbox" checked={x.selected!==false} onChange={()=>toggleReview(i)}/></span><select value={x.category||"other"} onChange={e=>updateReview(i,"category",e.target.value)}><option value="ticket">Passagem</option><option value="hotel">Hospedagem</option><option value="baggage">Bagagem</option><option value="vehicle">Veículo</option><option value="toll">Pedágio</option><option value="parking">Estacionamento</option><option value="fuel">Combustível</option><option value="meal">Refeição</option><option value="laundry">Lavanderia</option><option value="uber">Uber</option><option value="other">Outros</option></select><input type="date" value={x.cost_date||""} onChange={e=>updateReview(i,"cost_date",e.target.value)}/><input value={x.description||""} onChange={e=>updateReview(i,"description",e.target.value)}/><select value={x.collaborator_name||""} onChange={e=>updateReview(i,"collaborator_name",e.target.value)}><option value="">Sem vínculo</option>{collaborators.map(c=><option key={c.id} value={c.name}>{c.name}</option>)}</select><input className="money-input" inputMode="decimal" value={String(x.amount??"")} onChange={e=>updateReview(i,"amount",e.target.value)}/></div>)}</div>{preview.reviewRows.length>100&&<small className="muted">Exibindo as primeiras 100 linhas; a confirmação considera todas as linhas selecionadas.</small>}{(role==="admin"||role==="manager")?<div className="review-actions"><button className="secondary" onClick={saveReview} disabled={busy}>Salvar conferência</button><button className="primary" onClick={confirmImport} disabled={busy||review.invalidAmount.length>0||review.missingDate.length>0||review.unknownCollaborator.length>0||review.active.length===0}>Confirmar e lançar no consolidado</button></div>:<div className="alert">ℹ A confirmação financeira é realizada por gestor ou administrador.</div>}</div>}</div>
 }
 function DossierPlaceholder({tab}){return <div className="panel dossier-placeholder"><div className="module-icon">◆</div><span className="eyebrow">MÓDULO {tab.toUpperCase()}</span><h3>{tab}</h3><p>Estrutura reservada para o lançamento e consolidação desta etapa dentro do dossiê da OS.</p><span className="pill">Próxima implementação</span></div>
 }
