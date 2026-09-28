@@ -55,7 +55,7 @@ function TravelRequests({onOpen}){
 
 function RequestDossier({requestId,onBack}){
  const [tab,setTab]=useState("Resumo"),[data,setData]=useState(null),[collabs,setCollabs]=useState([]),[loading,setLoading]=useState(true);
- window.__dossierRequestId=requestId; const tabs=["Resumo","Passagens","Hospedagem","Veículo","Refeições","Lavanderia","Uber","Custos","Anexos","Relatório","Histórico"];
+ window.__dossierRequestId=requestId; window.__dossierDays=data?.days||0; const tabs=["Resumo","Passagens","Hospedagem","Veículo","Refeições","Lavanderia","Uber","Custos","Anexos","Relatório","Histórico"];
  useEffect(()=>{async function load(){const {data:r}=await supabase.from("travel_requests").select("id,os,state,city,manager_name,start_date,end_date,days,status,created_at,client_id,contract_id").eq("id",requestId).single();setData(r);const {data:c}=await supabase.from("travel_request_collaborators").select("collaborator_id,collaborators(id,name,cpf,birth_date)").eq("travel_request_id",requestId);setCollabs((c||[]).map(x=>x.collaborators).filter(Boolean));setLoading(false)}load()},[requestId]);
  if(loading)return <section className="content"><div className="center-box">Carregando dossiê…</div></section>;
  if(!data)return <section className="content"><div className="alert">⚠ Solicitação não encontrada.</div></section>;
