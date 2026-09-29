@@ -1,8 +1,12 @@
 import { supabase } from "./supabase";
 
-export async function signIn(email, password) {
+function requireSupabase() {
   if (!supabase) throw new Error("Supabase não configurado.");
-  return supabase.auth.signInWithPassword({ email, password });
+  return supabase;
+}
+
+export async function signIn(email, password) {
+  return requireSupabase().auth.signInWithPassword({ email, password });
 }
 
 export async function signOut() {
@@ -17,22 +21,101 @@ export async function getCurrentUser() {
   return data.user;
 }
 
+export async function getCurrentProfile() {
+  const client = requireSupabase();
+  const user = await getCurrentUser();
+  if (!user) return null;
+
+  const { data, error } = await client
+    .from("profiles")
+    .select("id,full_name,role,active")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function ensureRequesterProfile() {
+  const client = requireSupabase();
+  const user = await getCurrentUser();
+  if (!user) return null;
+
+  const existing = await getCurrentProfile();
+  if (existing) return existing;
+
+  const { data, error } = await client
+    .from("profiles")
+    .insert({
+      id: user.id,
+      full_name: user.user_metadata?.full_name || user.email?.split("@")[0] || "Usuário",
+      role: "requester",
+      active: true
+    })
+    .select("id,full_name,role,active")
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
 export async function listCollaborators() {
-  if (!supabase) return { data: [], error: null };
-  return supabase.from("collaborators")
-    .select("id,nome,cpf,data_nascimento,setor,uf,ativo")
-    .eq("ativo", true)
-    .order("nome");
+  return requireSupabase()
+    .from("collaborators")
+    .select("id,code,name,cpf,birth_date,rg,sector,uf,active")
+    .eq("active", true)
+    .order("name");
+}
+
+export async function createCollaborator(payload) {
+  return requireSupabase()
+    .from("collaborators")
+    .insert({
+      code: payload.code || null,
+      name: payload.name,
+      cpf: payload.cpf || null,
+      birth_date: payload.birth_date || null,
+      sector: payload.sector || null,
+      uf: payload.uf || null,
+      active: true
+    })
+    .select("id,code,name,cpf,birth_date,sector,uf,active")
+    .single();
+}
+
+export async function listTravelRequests() {
+  const client = requireSupabase();
+  const { data, error } = await client
+    .from("travel_requests")
+    .select("id,os,state,city,manager_name,start_date,end_date,days,status,created_at,client:clients(name)")
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return data || [];
 }
 
 export async function createTravelRequest(payload) {
-  if (!supabase) throw new Error("Supabase não configurado.");
-  const { data: userData, error: userError } = await supabase.auth.getUser();
-  if (userError) throw userError;
-  if (!userData.user) throw new Error("Usuário não autenticado.");
+  const client = requireSupabase();
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Usuário não autenticado.");
 
-  return supabase.from("travel_requests").insert({
-    ...payload,
-    requester_id: userData.user.id
-  }).select().single();
+  const { data, error } = await client
+    .from("travel_requests")
+    .insert({
+      os: payload.os,
+      requester_id: user.id,
+      client_id: payload.client_id || null,
+      contract_id: payload.contract_id || null,
+      state: payload.state || null,
+      city: payload.city || null,
+      manager_name: payload.manager_name || null,
+      start_date: payload.start_date,
+      end_date: payload.end_date,
+      status: "draft"
+    })
+    .select("id,os,state,city,manager_name,start_date,end_date,days,status,created_at")
+    .single();
+
+  if (error) throw error;
+  return data;
 }
