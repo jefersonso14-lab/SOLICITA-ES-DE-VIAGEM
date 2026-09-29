@@ -259,7 +259,6 @@ function Costs({ costs, requests, canManage, onNew }) {
   }, [selectedOs]);
 
   const allTotal = costs.reduce((sum, item) => sum + Number(item.amount || 0), 0);
-  const total = costs.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const byCategory = costs.reduce((acc, item) => {
     acc[item.category] = (acc[item.category] || 0) + Number(item.amount || 0);
     return acc;
