@@ -1,38 +1,26 @@
 # Plataforma de Solicitação de Viagens
 
-Plataforma web para centralizar solicitações de viagem, colaboradores, custos, comprovantes, relatórios e histórico.
+Plataforma web para centralização de solicitações de viagem, colaboradores, serviços, custos, comprovantes, relatórios e histórico.
 
-## Estado atual
+## Status
+Primeira interface navegável em implementação.
 
-### Fundação
-- Supabase/PostgreSQL estruturado
-- RLS e perfis de acesso
-- Base de colaboradores
-- Solicitações, serviços, custos, anexos e auditoria
+## Identidade
+- Vermelho e preto como identidade institucional.
+- Layout minimalista e responsivo.
+- Acessibilidade para usuários com daltonismo.
+- Estados identificados por cor, ícone e texto.
 
-### Interface inicial
-- React + Vite
-- Dashboard responsivo
-- Navegação lateral
-- Identidade visual vermelho/preto
-- Contraste e indicadores acessíveis
-- Estrutura preparada para os módulos funcionais
+## Stack
+- React
+- Vite
+- Supabase/PostgreSQL
+- XLSX
+- PDF.js
+- Tesseract.js
 
-## Próximos módulos
-
-1. Autenticação
-2. Base de colaboradores
-3. Nova solicitação de viagem
-4. Dossiê da OS
-5. Custos
-6. Anexos e OCR
-7. Relatórios
-8. Auditoria e histórico
-
-## Acessibilidade
-
-Estados não dependem exclusivamente de cor. A interface utiliza combinação de cor, ícone, texto e contraste, considerando usuários com dificuldade de distinção de cores.
+## Fluxo
+Nova OS → Dados → Colaboradores → Serviços → Custos → Anexos → Revisão → Envio → Dossiê da OS
 
 ## Documentação
-
-Consulte a pasta `docs/` para requisitos, regras de negócio, arquitetura, banco, custos, importação, relatórios, auditoria, roadmap e identidade visual.
+Consulte a pasta `docs/`.
