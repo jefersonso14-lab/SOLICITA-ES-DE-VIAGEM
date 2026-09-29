@@ -83,6 +83,32 @@ export async function listTravelRequests() {
   return data || [];
 }
 
+export async function listCosts() {
+  const { data, error } = await requireSupabase().from("costs")
+    .select("id,travel_request_id,category,description,amount,cost_date,source,created_at,travel_request:travel_requests(os,city,state)")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function createCost(payload) {
+  const client = requireSupabase();
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Usuário não autenticado.");
+  const { data, error } = await client.from("costs").insert({
+    travel_request_id: payload.travel_request_id,
+    category: payload.category,
+    description: payload.description || null,
+    amount: Number(payload.amount || 0),
+    cost_date: payload.cost_date || null,
+    collaborator_id: payload.collaborator_id || null,
+    source: payload.source || "manual",
+    created_by: user.id
+  }).select("id,travel_request_id,category,description,amount,cost_date,source,created_at").single();
+  if (error) throw error;
+  return data;
+}
+
 export async function createTravelRequest(payload) {
   const client = requireSupabase();
   const user = await getCurrentUser();
