@@ -1,237 +1,94 @@
-import React,{useEffect,useState} from "react";
-import {createRoot} from "react-dom/client";
-import {supabase} from "./lib/supabase";
-import * as XLSX from "xlsx";
+import React, { useMemo, useState } from "react";
+import { createRoot } from "react-dom/client";
 import "./styles.css";
 
-const nav=[["⌂","Dashboard"],["＋","Solicitações"],["●","Colaboradores"],["R$","Custos"],["▤","Relatórios"],["□","Anexos"],["◷","Histórico"]];
-const stats=[["OS em andamento","08","Acompanhar"],["Pendentes","05","Revisar"],["Custo acumulado","R$ 48.620,40","Período atual"]];
+const menu = [
+  ["dashboard","Dashboard"],
+  ["requests","Solicitações"],
+  ["people","Colaboradores"],
+  ["costs","Custos"],
+  ["reports","Relatórios"],
+  ["files","Anexos"],
+  ["history","Histórico"],
+];
+
+const stats = [
+  ["OS abertas","12","Em acompanhamento"],
+  ["Em andamento","7","Viagens ativas"],
+  ["Pendentes","4","Aguardando ação"],
+  ["Custo acumulado","R$ 48.620,40","Período atual"],
+];
 
 function App(){
- const [session,setSession]=useState(null);
- const [loading,setLoading]=useState(true);
- useEffect(()=>{ if(!supabase){setLoading(false);return;} supabase.auth.getSession().then(({data})=>{setSession(data.session);setLoading(false)}); const {data:{subscription}}=supabase.auth.onAuthStateChange((_e,s)=>setSession(s)); return()=>subscription.unsubscribe();},[]);
- if(loading)return <div className="center-screen">Carregando plataforma…</div>;
- if(!session)return <Login/>;
- return <Shell session={session}/>;
+  const [active,setActive]=useState("dashboard");
+  const [search,setSearch]=useState("");
+  const [modal,setModal]=useState(false);
+
+  const title = useMemo(()=>menu.find(([id])=>id===active)?.[1] || "Dashboard",[active]);
+
+  return <div className="app">
+    <aside className="sidebar">
+      <div className="brand">
+        <div className="brand-mark">B</div>
+        <div><strong>PLATAFORMA</strong><span>Solicitação de Viagens</span></div>
+      </div>
+      <nav aria-label="Navegação principal">
+        {menu.map(([id,label],i)=><button key={id} className={active===id?"nav-item active":"nav-item"} onClick={()=>setActive(id)}>
+          <span className="nav-icon" aria-hidden="true">{["⌂","▣","♙","R$","▤","□","◷"][i]}</span>{label}
+        </button>)}
+      </nav>
+      <div className="sidebar-footer"><span className="status-dot">●</span> Sistema operacional</div>
+    </aside>
+
+    <main className="main">
+      <header className="topbar">
+        <div><div className="eyebrow">PLATAFORMA DE SOLICITAÇÃO DE VIAGENS</div><h1>{title}</h1></div>
+        <div className="top-actions"><button className="icon-button" aria-label="Notificações">◔</button><div className="avatar" aria-label="Usuário">JS</div></div>
+      </header>
+
+      {active==="dashboard" ? <Dashboard search={search} setSearch={setSearch} onNew={()=>setModal(true)}/> :
+       <Section title={title} onNew={active==="requests"||active==="people"?()=>setModal(true):undefined}/>}
+    </main>
+
+    {modal && <Modal active={active} onClose={()=>setModal(false)}/>}
+  </div>
 }
 
-function Login(){
- const [email,setEmail]=useState(""); const [password,setPassword]=useState(""); const [error,setError]=useState(""); const [busy,setBusy]=useState(false);
- async function submit(e){e.preventDefault();setError("");setBusy(true); if(!supabase){setError("Configure as variáveis do Supabase para ativar o login.");setBusy(false);return;} const {error}=await supabase.auth.signInWithPassword({email,password}); if(error)setError("Não foi possível entrar. Verifique e-mail e senha."); setBusy(false);}
- return <main className="login"><div className="login-card"><div className="brand login-brand"><span className="brand-mark">B</span><div><strong>PLATAFORMA</strong><small>Solicitação de Viagens</small></div></div><span className="eyebrow">ACESSO RESTRITO</span><h1>Entrar</h1><p>Acesse suas solicitações, custos e documentos.</p><form onSubmit={submit}><label>E-mail<input type="email" value={email} onChange={e=>setEmail(e.target.value)} required autoComplete="email"/></label><label>Senha<input type="password" value={password} onChange={e=>setPassword(e.target.value)} required autoComplete="current-password"/></label>{error&&<div className="alert" role="alert">⚠ {error}</div>}<button className="primary full" disabled={busy}>{busy?"Entrando…":"Entrar"}</button></form><small className="login-note">Acesso individualizado e protegido.</small></div></main>
-}
-
-function Shell({session}){
- const [active,setActive]=useState("Dashboard"); const [profile,setProfile]=useState(null); const [selectedRequest,setSelectedRequest]=useState(null);
- useEffect(()=>{supabase.from("profiles").select("full_name,role").eq("id",session.user.id).maybeSingle().then(({data})=>setProfile(data));},[session.user.id]);
- const name=profile?.full_name||session.user.email?.split("@")[0]||"Usuário";
- return <div className="app"><aside className="sidebar"><div className="brand"><span className="brand-mark">B</span><div><strong>PLATAFORMA</strong><small>Solicitação de Viagens</small></div></div><nav>{nav.map(([icon,label])=><button className={active===label?"nav active":"nav"} onClick={()=>{setActive(label);if(label!=="Solicitações")setSelectedRequest(null)}} key={label}><span>{icon}</span>{label}</button>)}</nav><button className="logout" onClick={()=>supabase.auth.signOut()}>↪ Sair</button></aside><main className="main"><header className="topbar"><div><span className="eyebrow">GESTÃO DE VIAGENS</span><h1>{active}</h1></div><div className="user"><div className="avatar">{name.slice(0,2).toUpperCase()}</div><div><b>{name}</b><small>{profile?.role||"Solicitante"}</small></div></div></header>{active==="Dashboard"?<Dashboard/>:active==="Colaboradores"?<Collaborators/>:active==="Solicitações"?<TravelRequests onOpen={setSelectedRequest}/>:selectedRequest?<RequestDossier requestId={selectedRequest} onBack={()=>setSelectedRequest(null)}/>:<Module title={active}/>}</main></div>
-}
-
-function Dashboard(){return <section className="content"><div className="hero"><div><span className="tag">VISÃO GERAL</span><h2>Controle suas viagens em um único lugar.</h2><p>Solicitações, colaboradores, custos e documentos organizados por OS.</p></div><button className="primary">＋ Nova solicitação</button></div><div className="stats">{stats.map(([t,v,s])=><article className="stat" key={t}><span>{t}</span><strong>{v}</strong><small>{s}</small></article>)}<article className="stat"><span>Base ativa</span><strong>Consultar</strong><small>Colaboradores</small></article></div></section>}
-
-function Collaborators(){
- const [rows,setRows]=useState([]); const [query,setQuery]=useState(""); const [open,setOpen]=useState(false); const [form,setForm]=useState({name:"",cpf:"",birth_date:"",sector:"",uf:""}); const [saving,setSaving]=useState(false); const [error,setError]=useState("");
- async function load(){const {data,error}=await supabase.from("collaborators").select("id,name,cpf,birth_date,sector,uf,active").order("name"); if(!error)setRows(data||[]); else setError("Não foi possível carregar a base de colaboradores.");}
- useEffect(()=>{load()},[]);
- const filtered=rows.filter(r=>[r.name,r.cpf,r.sector,r.uf].join(" ").toLowerCase().includes(query.toLowerCase()));
- async function save(e){e.preventDefault();setSaving(true);setError("");const {error}=await supabase.from("collaborators").insert(form);if(error)setError(error.code==="23505"?"CPF já cadastrado.":"Não foi possível salvar.");else{setOpen(false);setForm({name:"",cpf:"",birth_date:"",sector:"",uf:""});load();}setSaving(false)}
- return <section className="content"><div className="module-head"><div><span className="eyebrow">CADASTRO MESTRE</span><h2>Colaboradores</h2><p>Base reutilizável para todas as solicitações de viagem.</p></div><button className="primary" onClick={()=>setOpen(true)}>＋ Novo colaborador</button></div><div className="toolbar"><input placeholder="Pesquisar nome, CPF, setor ou UF" value={query} onChange={e=>setQuery(e.target.value)}/><span>{filtered.length} registros</span></div>{error&&<div className="alert" role="alert">⚠ {error}</div>}<div className="panel"><div className="table collab"><div className="tr th"><span>Nome</span><span>CPF</span><span>Nascimento</span><span>Setor</span><span>UF</span></div>{filtered.length?filtered.map(r=><div className="tr" key={r.id}><span><b>{r.name}</b></span><span>{r.cpf||"—"}</span><span>{r.birth_date?new Date(r.birth_date+"T00:00:00").toLocaleDateString("pt-BR"):"—"}</span><span>{r.sector||"—"}</span><span>{r.uf||"—"}</span></div>):<div className="empty">Nenhum colaborador encontrado.</div>}</div></div>{open&&<div className="modal-backdrop"><form className="modal" onSubmit={save}><div className="panel-head"><div><span className="eyebrow">NOVO REGISTRO</span><h3>Colaborador</h3></div><button type="button" className="close" onClick={()=>setOpen(false)}>×</button></div><label>Nome<input required value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></label><div className="form-grid"><label>CPF<input value={form.cpf} onChange={e=>setForm({...form,cpf:e.target.value})}/></label><label>Data de nascimento<input type="date" value={form.birth_date} onChange={e=>setForm({...form,birth_date:e.target.value})}/></label><label>Setor<input value={form.sector} onChange={e=>setForm({...form,sector:e.target.value})}/></label><label>UF<input maxLength="2" value={form.uf} onChange={e=>setForm({...form,uf:e.target.value.toUpperCase()})}/></label></div>{error&&<div className="alert">⚠ {error}</div>}<button className="primary full" disabled={saving}>{saving?"Salvando…":"Salvar colaborador"}</button></form></div>}</section>
-}
-
-
-function TravelRequests({onOpen}){
- const [clients,setClients]=useState([]),[contracts,setContracts]=useState([]),[collabs,setCollabs]=useState([]),[requests,setRequests]=useState([]);
- const [form,setForm]=useState({os:"",client_id:"",contract_id:"",state:"",city:"",manager_name:"",start_date:"",end_date:"",status:"draft"});
- const [selected,setSelected]=useState([]),[saving,setSaving]=useState(false),[message,setMessage]=useState("");
- useEffect(()=>{Promise.all([supabase.from("clients").select("id,name").eq("active",true).order("name"),supabase.from("contracts").select("id,name,code,client_id").eq("active",true).order("name"),supabase.from("collaborators").select("id,name,cpf").eq("active",true).order("name"),supabase.from("travel_requests").select("id,os,state,city,start_date,end_date,status").order("created_at",{ascending:false})]).then(([c,k,x,r])=>{setClients(c.data||[]);setContracts(k.data||[]);setCollabs(x.data||[]);setRequests(r.data||[])})},[]);
- const days=form.start_date&&form.end_date?Math.max(0,Math.floor((new Date(form.end_date)-new Date(form.start_date))/86400000)+1):0;
- const availableContracts=contracts.filter(c=>!form.client_id||c.client_id===form.client_id);
- function toggle(id){setSelected(s=>s.includes(id)?s.filter(x=>x!==id):[...s,id])}
- async function save(e){e.preventDefault();setSaving(true);setMessage("");const {data,error}=await supabase.from("travel_requests").insert({...form}).select("id").single();if(error){setMessage("⚠ Não foi possível salvar a solicitação.");setSaving(false);return} if(selected.length){const {error:e2}=await supabase.from("travel_request_collaborators").insert(selected.map(collaborator_id=>({travel_request_id:data.id,collaborator_id})));if(e2){setMessage("⚠ OS criada, mas houve erro ao vincular colaboradores.");setSaving(false);return}}setRequests(r=>[{id:data.id,...form},...r]);setForm({os:"",client_id:"",contract_id:"",state:"",city:"",manager_name:"",start_date:"",end_date:"",status:"draft"});setSelected([]);setMessage("✓ Solicitação salva como rascunho.");setSaving(false)}
- return <section className="content"><div className="module-head"><div><span className="eyebrow">NOVA SOLICITAÇÃO</span><h2>Solicitação de viagem</h2><p>Cadastre a OS e prepare o dossiê digital da viagem.</p></div></div><div className="request-layout"><form className="panel request-form" onSubmit={save}><div className="panel-head"><div><span className="eyebrow">1 · IDENTIFICAÇÃO</span><h3>Dados da OS</h3></div></div><div className="form-grid"><label>OS<input required value={form.os} onChange={e=>setForm({...form,os:e.target.value})}/></label><label>Gestor responsável<input value={form.manager_name} onChange={e=>setForm({...form,manager_name:e.target.value})}/></label><label>Cliente<select value={form.client_id} onChange={e=>setForm({...form,client_id:e.target.value,contract_id:""})}><option value="">Selecione</option>{clients.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</select></label><label>Contrato<select value={form.contract_id} onChange={e=>setForm({...form,contract_id:e.target.value})}><option value="">Selecione</option>{availableContracts.map(c=><option value={c.id} key={c.id}>{c.code?c.code+" — ":""}{c.name}</option>)}</select></label><label>Estado (UF)<input maxLength="2" value={form.state} onChange={e=>setForm({...form,state:e.target.value.toUpperCase()})}/></label><label>Cidade<input value={form.city} onChange={e=>setForm({...form,city:e.target.value})}/></label><label>Início<input type="date" required value={form.start_date} onChange={e=>setForm({...form,start_date:e.target.value})}/></label><label>Retorno<input type="date" required value={form.end_date} onChange={e=>setForm({...form,end_date:e.target.value})}/></label></div><div className="period-card"><span>PERÍODO</span><strong>{days?days+" dia(s)":"Informe as datas"}</strong></div><div className="panel-head section-gap"><div><span className="eyebrow">2 · EQUIPE</span><h3>Colaboradores</h3></div></div><div className="collab-picker">{collabs.map(c=><label className={selected.includes(c.id)?"check active":"check"} key={c.id}><input type="checkbox" checked={selected.includes(c.id)} onChange={()=>toggle(c.id)}/><span><b>{c.name}</b><small>{c.cpf||"CPF não informado"}</small></span></label>)}</div>{message&&<div className="alert" role="status">{message}</div>}<button className="primary full" disabled={saving}>{saving?"Salvando…":"Salvar solicitação como rascunho"}</button></form><aside className="panel request-side"><span className="eyebrow">FLUXO DA OS</span><h3>Próximas etapas</h3><ol><li><b>Identificação</b><small>OS, cliente, contrato e período</small></li><li><b>Serviços</b><small>Passagem, hospedagem e veículo</small></li><li><b>Despesas</b><small>Refeições, lavanderia e Uber</small></li><li><b>Comprovantes</b><small>Anexos e conferência</small></li><li><b>Relatório</b><small>Consolidação final de custos</small></li></ol></aside></div><div className="panel request-list"><div className="panel-head"><div><span className="eyebrow">HISTÓRICO RECENTE</span><h3>Solicitações</h3></div></div><div className="table"><div className="tr th"><span>OS</span><span>Destino</span><span>Período</span><span>Status</span></div>{requests.map(r=><div className="tr" key={r.id}><span><b>{r.os}</b></span><span>{r.city||"—"}{r.state?" / "+r.state:""}</span><span>{r.start_date} → {r.end_date}</span><span className="pill">{r.status}</span><button className="text-btn" onClick={()=>onOpen(r.id)}>Abrir →</button></div>)}</div></div></section>
-}
-
-
-function RequestDossier({requestId,onBack}){
- const [tab,setTab]=useState("Resumo"),[data,setData]=useState(null),[collabs,setCollabs]=useState([]),[loading,setLoading]=useState(true);
- window.__dossierRequestId=requestId; window.__dossierDays=data?.days||0; const tabs=["Resumo","Passagens","Hospedagem","Veículo","Refeições","Lavanderia","Uber","Custos","Anexos","Relatório","Histórico"];
- useEffect(()=>{async function load(){const {data:r}=await supabase.from("travel_requests").select("id,os,state,city,manager_name,start_date,end_date,days,status,created_at,client_id,contract_id").eq("id",requestId).single();setData(r);const {data:c}=await supabase.from("travel_request_collaborators").select("collaborator_id,collaborators(id,name,cpf,birth_date)").eq("travel_request_id",requestId);setCollabs((c||[]).map(x=>x.collaborators).filter(Boolean));setLoading(false)}load()},[requestId]);
- if(loading)return <section className="content"><div className="center-box">Carregando dossiê…</div></section>;
- if(!data)return <section className="content"><div className="alert">⚠ Solicitação não encontrada.</div></section>;
- return <section className="content"><button className="back-btn" onClick={onBack}>← Voltar para solicitações</button><div className="dossier-head"><div><span className="eyebrow">DOSSIÊ DIGITAL</span><h2>OS {data.os}</h2><p>{data.city||"Destino não informado"}{data.state?" / "+data.state:""} · {data.start_date} → {data.end_date} · {data.days} dia(s)</p></div><span className="status-badge">{data.status}</span></div><div className="tabs">{tabs.map(t=><button className={tab===t?"tab active":"tab"} onClick={()=>setTab(t)} key={t}>{t}</button>)}</div>{tab==="Resumo"?<DossierSummary data={data} collabs={collabs}/>:tab==="Anexos"?<AttachmentsTab requestId={requestId}/>:tab==="Relatório"?<DossierReport requestId={requestId} data={data} collabs={collabs}/>:tab==="Custos"?<DossierCosts requestId={requestId} collabs={collabs}/>:<DossierServiceTab tab={tab} requestId={requestId} days={data.days||0} collabs={collabs} />}</section>
-}
-
-function DossierSummary({data,collabs}){return <div className="dossier-grid"><article className="panel"><span className="eyebrow">IDENTIFICAÇÃO</span><h3>Dados da viagem</h3><div className="detail-grid"><div><small>OS</small><b>{data.os}</b></div><div><small>Gestor</small><b>{data.manager_name||"—"}</b></div><div><small>Destino</small><b>{data.city||"—"}{data.state?" / "+data.state:""}</b></div><div><small>Período</small><b>{data.start_date} → {data.end_date}</b></div><div><small>Duração</small><b>{data.days} dia(s)</b></div><div><small>Status</small><b>{data.status}</b></div></div></article><article className="panel"><span className="eyebrow">EQUIPE</span><h3>Colaboradores ({collabs.length})</h3>{collabs.length?collabs.map(c=><div className="person-row" key={c.id}><div className="avatar small">{c.name.slice(0,2).toUpperCase()}</div><div><b>{c.name}</b><small>{c.cpf||"CPF não informado"}</small></div></div>):<p className="muted">Nenhum colaborador vinculado.</p>}</article><article className="panel"><span className="eyebrow">EXECUÇÃO</span><h3>Composição da viagem</h3><div className="dossier-checks"><div>○ Passagens <span>Aguardando lançamento</span></div><div>○ Hospedagem <span>Aguardando lançamento</span></div><div>○ Veículo <span>Aguardando lançamento</span></div><div>○ Despesas <span>Aguardando lançamento</span></div><div>○ Comprovantes <span>Aguardando anexos</span></div></div></article></div>}
-
-function AttachmentsTab({requestId}) {
- const [rows,setRows]=useState([]),[busy,setBusy]=useState(false),[progress,setProgress]=useState(""),[error,setError]=useState(""),[message,setMessage]=useState(""),[preview,setPreview]=useState(null),[role,setRole]=useState(""),[collaborators,setCollaborators]=useState([]);
- useEffect(()=>{load()},[requestId]);
- async function load(){
-   const {data,error}=await supabase.from("attachments").select("id,file_name,mime_type,file_size,extraction_status,extracted_data,storage_path,created_at").eq("travel_request_id",requestId).order("created_at",{ascending:false});
-   if(error)setError("Não foi possível carregar os anexos.");else setRows(data||[]);
-   const {data:c}=await supabase.from("collaborators").select("id,name").eq("active",true).order("name");setCollaborators(c||[]);
-   const {data:u}=await supabase.auth.getUser();if(u.user){const p=await supabase.from("profiles").select("role").eq("id",u.user.id).maybeSingle();setRole(p.data?.role||"requester")}
- }
- function fmt(n){return !n?"—":n<1048576?(n/1024).toFixed(1)+" KB":(n/1048576).toFixed(1)+" MB"}
- function normalize(v){return String(v??"").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")}
- function num(v){if(typeof v==="number")return v;let s=String(v??"").replace(/R\$|\s/g,"");if(s.includes(",")&&s.includes("."))s=s.replace(/\./g,"").replace(",",".");else s=s.replace(",",".");const n=Number(s.replace(/[^0-9.-]/g,""));return Number.isFinite(n)?n:0}
- function date(v){if(v instanceof Date)return v.toISOString().slice(0,10);if(typeof v==="number"){const d=XLSX.SSF.parse_date_code(v);return d?new Date(Date.UTC(d.y,d.m-1,d.d)).toISOString().slice(0,10):null}const s=String(v??"").trim();const m=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);if(m)return (m[3].length===2?"20"+m[3]:m[3])+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0");return /^\d{4}-\d{2}-\d{2}$/.test(s)?s:null}
- function category(v){const x=normalize(v);if(/pass|ticket|aereo|onibus/.test(x))return "ticket";if(/hotel|hosped/.test(x))return "hotel";if(/bagag/.test(x))return "baggage";if(/veicul|locac/.test(x))return "vehicle";if(/pedag/.test(x))return "toll";if(/estacion/.test(x))return "parking";if(/combust|gasolina/.test(x))return "fuel";if(/refeic|almoco|jantar|cafe/.test(x))return "meal";if(/lavander/.test(x))return "laundry";if(/uber|99|taxi|transporte/.test(x))return "uber";return "other"}
- function extractRows(text){
-   const lines=String(text||"").split(/\r?\n/).map(x=>x.trim()).filter(Boolean);const out=[];let currentCategory="other";
-   for(let i=0;i<lines.length;i++){const line=lines[i],cat=category(line);if(cat!=="other")currentCategory=cat;const amounts=line.match(/(?:R\$\s*)?-?\d{1,3}(?:[.\s]\d{3})*(?:,\d{2})|-?\d+(?:[.,]\d{2})/g)||[];const amount=amounts.length?Math.max(...amounts.map(num)):0;const dates=line.match(/\b\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}\b|\b\d{4}-\d{2}-\d{2}\b/g)||[];const collaboratorMatch=line.match(/(?:colaborador|passageiro|hospede|nome)\s*[:=-]\s*([^|;]+)/i);const collaborator_name=collaboratorMatch?.[1]?.trim()||"";if(amount>0){const desc=line.replace(amounts.join(" ")," ").replace(/\s{2,}/g," ").trim();out.push({line:i+1,category:currentCategory,description:desc.slice(0,240),collaborator_name,cost_date:dates.length?date(dates[0]):null,amount,selected:true})}}
-   return out;
- }
- async function readPdf(file){
-   const pdfjs=await import("pdfjs-dist");const workerModule=await import("pdfjs-dist/build/pdf.worker.min.mjs?url");pdfjs.GlobalWorkerOptions.workerSrc=workerModule.default;const buffer=await file.arrayBuffer();const pdf=await pdfjs.getDocument({data:buffer}).promise;const maxPages=Math.min(pdf.numPages,15);let text="";
-   for(let pageNo=1;pageNo<=maxPages;pageNo++){setProgress("Lendo PDF — página "+pageNo+" de "+maxPages);const page=await pdf.getPage(pageNo);const content=await page.getTextContent();text+=content.items.map(item=>item.str||"").join(" ")+"\n"}
-   if(text.replace(/\s/g,"").length>=80)return {text,method:"pdf-text",pages:pdf.numPages};
-   const worker=await createOcrWorker();let ocr="";for(let pageNo=1;pageNo<=maxPages;pageNo++){setProgress("OCR do PDF — página "+pageNo+" de "+maxPages);const page=await pdf.getPage(pageNo);const viewport=page.getViewport({scale:1.5});const canvas=document.createElement("canvas");canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);await page.render({canvasContext:canvas.getContext("2d"),viewport}).promise;const result=await worker.recognize(canvas);ocr+=result.data.text+"\n"}await worker.terminate();return {text:ocr,method:"pdf-ocr",pages:pdf.numPages};
- }
- async function createOcrWorker(){const {createWorker}=await import("tesseract.js");return createWorker("por")}
- async function readImage(file){const worker=await createOcrWorker();setProgress("Executando OCR da imagem…");const result=await worker.recognize(file);await worker.terminate();return {text:result.data.text,method:"image-ocr",pages:1}}
- async function extractAttachment(file){if(/\.(xlsx?|csv)$/i.test(file.name))return null;if(file.type==="application/pdf"||/\.pdf$/i.test(file.name))return readPdf(file);if(/^image\//.test(file.type)||/\.(jpe?g|png)$/i.test(file.name))return readImage(file);return null}
- async function upload(e){
-   const files=[...(e.target.files||[])];if(!files.length)return;setBusy(true);setError("");setMessage("");
-   try{for(const file of files){if(file.size>20*1024*1024){setError("O arquivo "+file.name+" ultrapassa o limite de 20 MB.");continue}const {data:u}=await supabase.auth.getUser();if(!u.user)throw new Error("Sessão expirada.");const path=u.user.id+"/"+Date.now()+"-"+file.name.replace(/[^a-zA-Z0-9._-]/g,"_");const up=await supabase.storage.from("travel-attachments").upload(path,file,{contentType:file.type||"application/octet-stream",upsert:false});if(up.error)throw up.error;const ins=await supabase.from("attachments").insert({travel_request_id:requestId,file_name:file.name,mime_type:file.type,file_size:file.size,storage_path:path,uploaded_by:u.user.id,extraction_status:"pending"}).select("id").single();if(ins.error){await supabase.storage.from("travel-attachments").remove([path]);throw ins.error}
-     try{const extracted=await extractAttachment(file);if(extracted){const extractedRows=extractRows(extracted.text);await supabase.from("attachments").update({extracted_data:{source:extracted.method,pages:extracted.pages,text:extracted.text.slice(0,20000),rows:extractedRows},extraction_status:"extracted"}).eq("id",ins.data.id)}else if(/\.(xlsx?|csv)$/i.test(file.name)){const buffer=await file.arrayBuffer();const wb=XLSX.read(buffer,{type:"array",cellDates:true});const ws=wb.Sheets[wb.SheetNames[0]];const json=XLSX.utils.sheet_to_json(ws,{defval:""});const extractedRows=json.map((r,i)=>{const keys=Object.keys(r),find=k=>keys.find(key=>normalize(key).includes(k)),amountKey=find("valor")||find("amount")||find("custo")||find("cost")||find("preco")||find("total"),catKey=find("categoria")||find("category")||find("tipo"),dateKey=find("data")||find("date"),descKey=find("descricao")||find("description")||find("historico")||find("detalhe"),collabKey=find("colaborador")||find("passageiro")||find("nome");return {line:i+2,category:category(r[catKey]),description:String(r[descKey]||""),collaborator_name:String(r[collabKey]||""),cost_date:date(r[dateKey]),amount:num(r[amountKey]),selected:true}}).filter(x=>x.amount>0||x.description||x.collaborator_name);await supabase.from("attachments").update({extracted_data:{source:"spreadsheet",rows:extractedRows},extraction_status:"extracted"}).eq("id",ins.data.id)}}
-     catch(ex){await supabase.from("attachments").update({extracted_data:{source:"extraction-error",error:ex.message}}).eq("id",ins.data.id);setError("O arquivo "+file.name+" foi anexado, mas a leitura automática falhou: "+ex.message)}
-     setProgress("")}await load()}catch(ex){setError("Não foi possível processar os anexos: "+ex.message)}finally{setBusy(false);setProgress("");e.target.value=""}
- }
- async function openFile(row){const {data,error}=await supabase.storage.from("travel-attachments").createSignedUrl(row.storage_path,300);if(error)setError("Não foi possível abrir o arquivo.");else window.open(data.signedUrl,"_blank","noopener,noreferrer")}
- function beginReview(row){const sourceRows=(row.extracted_data?.rows||[]).map(x=>({...x,selected:x.selected!==false}));setPreview({...row,reviewRows:sourceRows})}
- function updateReview(index,field,value){setPreview(p=>({...p,reviewRows:p.reviewRows.map((r,i)=>i===index?{...r,[field]:field==="amount"?num(value):value}:r)}))}
- function toggleReview(index){setPreview(p=>({...p,reviewRows:p.reviewRows.map((r,i)=>i===index?{...r,selected:!r.selected}:r)}))}
- function selectAll(value){setPreview(p=>({...p,reviewRows:p.reviewRows.map(r=>({...r,selected:value}))}))}
- function validation(row){
-   const active=row.reviewRows.filter(x=>x.selected);
-   const invalidAmount=active.filter(x=>!(Number(x.amount)>0));
-   const missingDate=active.filter(x=>!x.cost_date);
-   const unknownCollaborator=active.filter(x=>x.collaborator_name&&!collaborators.some(c=>normalize(c.name)===normalize(x.collaborator_name)));
-   return {active,invalidAmount,missingDate,unknownCollaborator};
- }
- async function saveReview(){
-   if(!preview)return;setBusy(true);setError("");const payload={...preview,extracted_data:{...preview.extracted_data,rows:preview.reviewRows}};const {error}=await supabase.from("attachments").update({extracted_data:payload.extracted_data}).eq("id",preview.id);if(error){setError("Não foi possível salvar a conferência.");setBusy(false);return}setRows(r=>r.map(x=>x.id===preview.id?{...x,...payload}:x));setPreview(payload);setMessage("✓ Conferência salva. Nenhum custo foi lançado.");setBusy(false)
- }
- async function confirmImport(){
-   if(!preview||(role!=="admin"&&role!=="manager"))return;
-   const check=validation(preview);if(!check.active.length){setError("Selecione pelo menos um lançamento.");return}
-   if(check.invalidAmount.length||check.missingDate.length||check.unknownCollaborator.length){setError("Corrija as inconsistências antes de confirmar: "+(check.invalidAmount.length?check.invalidAmount.length+" valor(es) inválido(s); ":"")+(check.missingDate.length?check.missingDate.length+" data(s) ausente(s); ":"")+(check.unknownCollaborator.length?check.unknownCollaborator.length+" colaborador(es) não localizado(s).":""));return}
-   const {data:u}=await supabase.auth.getUser();const source="attachment:"+preview.id;const existing=await supabase.from("costs").select("id").eq("source",source).limit(1);if(existing.data?.length){setError("Este arquivo já foi confirmado no consolidado. Evite lançamento duplicado.");return}
-   const collaboratorMap=Object.fromEntries(collaborators.map(c=>[normalize(c.name),c.id]));
-   const payload=check.active.map(x=>({travel_request_id:requestId,category:x.category||"other",description:x.description||("Importação: "+preview.file_name),amount:Number(x.amount),cost_date:x.cost_date,collaborator_id:collaboratorMap[normalize(x.collaborator_name)]||null,source,created_by:u.user.id}));
-   const ins=await supabase.from("costs").insert(payload);if(ins.error){setError("Não foi possível confirmar os custos: "+ins.error.message);return}
-   const upd=await supabase.from("attachments").update({extracted_data:{...preview.extracted_data,rows:preview.reviewRows},extraction_status:"confirmed"}).eq("id",preview.id);if(upd.error){setError("Custos lançados, mas o status do anexo não foi atualizado.");return}
-   setMessage("✓ "+payload.length+" lançamento(s) confirmado(s) no consolidado.");await load();setPreview(null)
- }
- async function remove(row){if(!confirm("Excluir o anexo “"+row.file_name+"”?"))return;await supabase.storage.from("travel-attachments").remove([row.storage_path]);await supabase.from("attachments").delete().eq("id",row.id);load()}
- const review=preview?validation(preview):{active:[],invalidAmount:[],missingDate:[],unknownCollaborator:[]};
- const reviewTotal=review.active.reduce((s,x)=>s+Number(x.amount||0),0);
- return <div className="attachments-module"><div className="panel upload-panel"><div className="panel-head"><div><span className="eyebrow">COMPROVANTES / IMPORTAÇÃO</span><h3>Anexos da OS</h3><p className="muted">PDF, Excel, CSV, JPG e PNG · até 20 MB.</p></div><label className="primary upload-btn">＋ Adicionar arquivos<input type="file" multiple accept=".pdf,.xls,.xlsx,.csv,.jpg,.jpeg,.png" onChange={upload} disabled={busy}/></label></div>{busy&&<div className="alert">{progress||"Processando…"}</div>}{message&&<div className="success-note">{message}</div>}{error&&<div className="alert">⚠ {error}</div>}<div className="attachment-list">{rows.length?rows.map(r=><div className="attachment-row" key={r.id}><div className="file-icon">{/\.(xlsx?|csv)$/i.test(r.file_name)?"XLS":"DOC"}</div><div className="file-main"><b>{r.file_name}</b><small>{fmt(r.file_size)} · {new Date(r.created_at).toLocaleString("pt-BR")}</small></div><span className="extract-status">{r.extraction_status==="pending"?"● Aguardando leitura":r.extraction_status==="extracted"?"● Pronto para conferência":r.extraction_status==="confirmed"?"● Confirmado":"● "+r.extraction_status}</span><div className="file-actions"><button className="text-btn" onClick={()=>openFile(r)}>Abrir</button>{r.extraction_status==="extracted"&&<button className="text-btn" onClick={()=>beginReview(r)}>Conferir</button>}<button className="danger-btn" onClick={()=>remove(r)}>Excluir</button></div></div>):<div className="empty">Nenhum comprovante anexado a esta OS.</div>}</div></div>{preview&&<div className="panel extraction-panel"><div className="panel-head"><div><span className="eyebrow">CONFERÊNCIA FINANCEIRA</span><h3>{preview.file_name}</h3></div><button className="close" onClick={()=>setPreview(null)}>×</button></div><p className="muted">Edite os dados, selecione apenas os lançamentos válidos e vincule colaboradores. A confirmação financeira é a última etapa.</p><div className="import-summary"><b>{review.active.length}</b><span>lançamentos selecionados</span><b>R$ {reviewTotal.toLocaleString("pt-BR",{minimumFractionDigits:2})}</b><span>total selecionado</span></div>{review.invalidAmount.length||review.missingDate.length||review.unknownCollaborator.length?<div className="alert">⚠ Existem inconsistências. Valores inválidos, datas ausentes e colaboradores não localizados devem ser corrigidos antes da confirmação.</div>:null}<div className="review-toolbar"><label className="inline-check"><input type="checkbox" checked={review.active.length===preview.reviewRows.length&&preview.reviewRows.length>0} onChange={e=>selectAll(e.target.checked)}/> Selecionar todos</label><span>{review.active.length} de {preview.reviewRows.length}</span></div><div className="import-table review-table"><div className="import-row review-head"><span>Usar</span><span>Categoria</span><span>Data</span><span>Descrição</span><span>Colaborador</span><span>Valor</span></div>{preview.reviewRows.slice(0,100).map((x,i)=><div className={["import-row","review-row",(x.selected?"":"row-disabled"),((!(Number(x.amount)>0))||!x.cost_date||(x.collaborator_name&&!collaborators.some(c=>normalize(c.name)===normalize(x.collaborator_name))))?"row-invalid":""].join(" ")} key={i}><span><input type="checkbox" checked={x.selected!==false} onChange={()=>toggleReview(i)}/></span><select value={x.category||"other"} onChange={e=>updateReview(i,"category",e.target.value)}><option value="ticket">Passagem</option><option value="hotel">Hospedagem</option><option value="baggage">Bagagem</option><option value="vehicle">Veículo</option><option value="toll">Pedágio</option><option value="parking">Estacionamento</option><option value="fuel">Combustível</option><option value="meal">Refeição</option><option value="laundry">Lavanderia</option><option value="uber">Uber</option><option value="other">Outros</option></select><input type="date" value={x.cost_date||""} onChange={e=>updateReview(i,"cost_date",e.target.value)}/><input value={x.description||""} onChange={e=>updateReview(i,"description",e.target.value)}/><select value={x.collaborator_name||""} onChange={e=>updateReview(i,"collaborator_name",e.target.value)}><option value="">Sem vínculo</option>{collaborators.map(c=><option key={c.id} value={c.name}>{c.name}</option>)}</select><input className="money-input" inputMode="decimal" value={String(x.amount??"")} onChange={e=>updateReview(i,"amount",e.target.value)}/></div>)}</div>{preview.reviewRows.length>100&&<small className="muted">Exibindo as primeiras 100 linhas; a confirmação considera todas as linhas selecionadas.</small>}{(role==="admin"||role==="manager")?<div className="review-actions"><button className="secondary" onClick={saveReview} disabled={busy}>Salvar conferência</button><button className="primary" onClick={confirmImport} disabled={busy||review.invalidAmount.length>0||review.missingDate.length>0||review.unknownCollaborator.length>0||review.active.length===0}>Confirmar e lançar no consolidado</button></div>:<div className="alert">ℹ A confirmação financeira é realizada por gestor ou administrador.</div>}</div>}</div>
-}
-function DossierReport({requestId,data,collabs}) {
- const [rows,setRows]=useState([]),[operational,setOperational]=useState({ticket:0,hotel:0,vehicle:0,meal:0,laundry:0,uber:0,total:0}),[loading,setLoading]=useState(true),[error,setError]=useState("");
- useEffect(()=>{async function load(){
-   setLoading(true);setError("");
-   const [costs,tickets,hotels,vehicles,meals,laundry,uber]=await Promise.all([
-     supabase.from("costs").select("id,category,description,amount,cost_date,collaborator_id,source,created_at,collaborators(name)").eq("travel_request_id",requestId).order("cost_date",{ascending:true}).order("created_at",{ascending:true}),
-     supabase.from("tickets").select("cost").eq("travel_request_id",requestId),
-     supabase.from("accommodations").select("cost").eq("travel_request_id",requestId),
-     supabase.from("vehicles").select("rental_cost,toll_cost,parking_cost,other_cost").eq("travel_request_id",requestId),
-     supabase.from("meals").select("unit_cost,quantity").eq("travel_request_id",requestId),
-     supabase.from("laundry").select("cost").eq("travel_request_id",requestId),
-     supabase.from("uber_expenses").select("amount").eq("travel_request_id",requestId)
-   ]);
-   if(costs.error){setError("Não foi possível carregar os custos confirmados.");setRows([])}else setRows(costs.data||[]);
-   const sum=(arr,key)=>((arr||[]).reduce((s,r)=>s+Number(r[key]||0),0));
-   const ticket=sum(tickets.data,"cost"),hotel=sum(hotels.data,"cost");
-   const vehicle=(vehicles.data||[]).reduce((s,r)=>s+Number(r.rental_cost||0)+Number(r.toll_cost||0)+Number(r.parking_cost||0)+Number(r.other_cost||0),0);
-   const meal=(meals.data||[]).reduce((s,r)=>s+Number(r.unit_cost||0)*Number(r.quantity||1),0);
-   const wash=sum(laundry.data,"cost"),ride=sum(uber.data,"amount");
-   setOperational({ticket,hotel,vehicle,meal,laundry:wash,uber:ride,total:ticket+hotel+vehicle+meal+wash+ride});
-   setLoading(false);
- }}load()},[requestId]);
- function money(v){return Number(v||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"})}
- function label(v){const m={ticket:"Passagens",hotel:"Hospedagem",baggage:"Bagagem",vehicle:"Veículo",toll:"Pedágio",parking:"Estacionamento",fuel:"Combustível",meal:"Refeições",laundry:"Lavanderia",uber:"Uber",other:"Outros"};return m[v]||v||"Outros"}
- const total=rows.reduce((s,r)=>s+Number(r.amount||0),0);
- const combined=total+operational.total;
- const daily=data?.days?combined/Number(data.days):0;
- const categories=Object.entries(rows.reduce((a,r)=>{const k=label(r.category);a[k]=(a[k]||0)+Number(r.amount||0);return a},{})).sort((a,b)=>b[1]-a[1]);
- const byCollaborator=Object.entries(rows.reduce((a,r)=>{const k=r.collaborators?.name||"Não atribuído";a[k]=(a[k]||0)+Number(r.amount||0);return a},{})).sort((a,b)=>b[1]-a[1]);
- const dates=rows.map(r=>r.cost_date).filter(Boolean).sort();
- function printReport(){window.print()}
- if(loading)return <div className="panel center-box">Consolidando relatório financeiro…</div>;
- return <div className="report-page">
-   <div className="module-head report-head"><div><span className="eyebrow">RELATÓRIO DA OS</span><h2>Consolidação da OS {data.os}</h2><p>{data.city||"Destino não informado"}{data.state?" / "+data.state:""} · {data.start_date} → {data.end_date} · {data.days} dia(s)</p></div><button className="secondary" onClick={printReport}>Imprimir relatório</button></div>
-   {error&&<div className="alert" role="alert">⚠ {error}</div>}
-   <div className="report-note"><b>Critério:</b> <b>financeiro confirmado</b> = lançamentos da tabela <code>costs</code> após conferência. <b>operacional lançado</b> = valores cadastrados nos módulos da OS e ainda sujeitos à conferência financeira.</div>
-   <div className="report-kpis">
-    <article className="report-kpi"><span>FINANCEIRO CONFIRMADO</span><strong>{money(total)}</strong><small>{rows.length} lançamento(s)</small></article>
-    <article className="report-kpi"><span>OPERACIONAL LANÇADO</span><strong>{money(operational.total)}</strong><small>Passagens · hotel · veículo · despesas</small></article>
-    <article className="report-kpi"><span>TOTAL PARA CONFERÊNCIA</span><strong>{money(combined)}</strong><small>{data.days||0} dia(s) de OS</small></article>
-    <article className="report-kpi"><span>MÉDIA / DIA</span><strong>{money(daily)}</strong><small>Operacional + confirmado</small></article>
-   </div>
-   <div className="report-columns">
-     <article className="panel"><div className="panel-head"><div><span className="eyebrow">OPERACIONAL</span><h3>Valores lançados por módulo</h3></div></div>
-       {[["Passagens",operational.ticket],["Hospedagem",operational.hotel],["Veículo",operational.vehicle],["Refeições",operational.meal],["Lavanderia",operational.laundry],["Uber",operational.uber]].map(([k,v])=><div className="report-line" key={k}><div><b>{k}</b><small>lançado no dossiê</small></div><strong>{money(v)}</strong></div>)}
+function Dashboard({search,setSearch,onNew}){
+ return <section className="content">
+   <div className="welcome"><div><h2>Visão geral</h2><p>Acompanhe suas solicitações e custos de viagem.</p></div><button className="primary" onClick={onNew}>＋ Nova solicitação</button></div>
+   <div className="stats">{stats.map(([label,value,note])=><article className="stat" key={label}><span>{label}</span><strong>{value}</strong><small>{note}</small></article>)}</div>
+   <div className="grid">
+     <article className="panel wide"><div className="panel-head"><div><h3>Solicitações recentes</h3><p>Últimas OS registradas</p></div><div className="search"><span>⌕</span><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Pesquisar OS, cliente..." aria-label="Pesquisar"/></div></div>
+       <div className="table-wrap"><table><thead><tr><th>OS</th><th>Cliente</th><th>Destino</th><th>Período</th><th>Status</th></tr></thead><tbody>
+       {[
+        ["OS 9086","TRUSTED","Vinhedo - SP","16/09 — 26/09","Em andamento","progress"],
+        ["OS 9078","AMAZON","Joinville - SC","22/09 — 26/09","Pendente","warning"],
+        ["OS 8864","AMAZON","Salvador - BA","18/02 — 28/02","Programada","info"],
+        ["OS 8862","TIM","Boa Vista - RR","18/02 — 28/02","Programada","info"],
+       ].filter(r=>r.join(" ").toLowerCase().includes(search.toLowerCase())).map(r=><tr key={r[0]}><td><b>{r[0]}</b></td><td>{r[1]}</td><td>{r[2]}</td><td>{r[3]}</td><td><span className={"badge "+r[5]}><i>{r[5]==="progress"?"✓":r[5]==="warning"?"⚠":"●"}</i>{r[4]}</span></td></tr>)}
+       </tbody></table></div>
      </article>
-     <article className="panel"><div className="panel-head"><div><span className="eyebrow">FINANCEIRO CONFIRMADO</span><h3>Distribuição por categoria</h3></div></div>{categories.length?categories.map(([k,v])=><div className="report-line" key={k}><div><b>{k}</b><small>{total?((v/total)*100).toFixed(1):"0.0"}% do confirmado</small></div><strong>{money(v)}</strong></div>):<div className="empty">Nenhum custo confirmado para esta OS.</div>}</article>
+     <article className="panel"><div className="panel-head"><div><h3>Acesso rápido</h3><p>Ações frequentes</p></div></div><div className="quick">
+       <button onClick={onNew}><span>＋</span><div><b>Nova solicitação</b><small>Criar uma nova OS</small></div></button>
+       <button><span>♙</span><div><b>Colaboradores</b><small>Consultar base</small></div></button>
+       <button><span>▤</span><div><b>Relatórios</b><small>Analisar custos</small></div></button>
+     </div></article>
    </div>
-   <article className="panel"><div className="panel-head"><div><span className="eyebrow">POR COLABORADOR</span><h3>Financeiro confirmado</h3></div></div>{byCollaborator.length?byCollaborator.map(([k,v])=><div className="report-line" key={k}><div><b>{k}</b><small>{total?((v/total)*100).toFixed(1):"0.0"}% do confirmado</small></div><strong>{money(v)}</strong></div>):<div className="empty">Nenhum custo atribuído.</div>}</article>
-   <article className="panel"><div className="panel-head"><div><span className="eyebrow">LANÇAMENTOS CONFIRMADOS</span><h3>Detalhamento financeiro</h3></div><span className="pill">{rows.length} item(ns)</span></div><div className="table report-table"><div className="tr th"><span>Data</span><span>Categoria</span><span>Descrição</span><span>Colaborador</span><span>Valor</span></div>{rows.length?rows.map(r=><div className="tr" key={r.id}><span>{r.cost_date?new Date(r.cost_date+"T00:00:00").toLocaleDateString("pt-BR"):"—"}</span><span>{label(r.category)}</span><span>{r.description||"—"}</span><span>{r.collaborators?.name||"Não atribuído"}</span><span><b>{money(r.amount)}</b></span></div>):<div className="empty">A conferência financeira ainda não possui itens confirmados para esta OS.</div>}</div></article>
-   {dates.length&&<div className="report-foot">Período dos custos confirmados: {new Date(dates[0]+"T00:00:00").toLocaleDateString("pt-BR")} a {new Date(dates[dates.length-1]+"T00:00:00").toLocaleDateString("pt-BR")}.</div>}
- </div>
+ </section>
 }
 
-function DossierCosts({requestId,collabs}) {
- const [rows,setRows]=useState([]),[loading,setLoading]=useState(true);
- useEffect(()=>{supabase.from("costs").select("id,category,description,amount,cost_date,source,collaborator_id,collaborators(name)").eq("travel_request_id",requestId).order("cost_date",{ascending:false}).then(({data})=>{setRows(data||[]);setLoading(false)})},[requestId]);
- const money=v=>Number(v||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
- const total=rows.reduce((s,r)=>s+Number(r.amount||0),0);
- return <div className="panel"><div className="panel-head"><div><span className="eyebrow">CONSOLIDADO</span><h3>Custos confirmados</h3></div><strong>{money(total)}</strong></div>{loading?<div className="center-box">Carregando…</div>:rows.length?<div className="table"><div className="tr th"><span>Data</span><span>Categoria</span><span>Descrição</span><span>Colaborador</span><span>Valor</span></div>{rows.map(r=><div className="tr" key={r.id}><span>{r.cost_date?new Date(r.cost_date+"T00:00:00").toLocaleDateString("pt-BR"):"—"}</span><span>{r.category}</span><span>{r.description||"—"}</span><span>{r.collaborators?.name||"Não atribuído"}</span><span><b>{money(r.amount)}</b></span></div>)}</div>:<div className="empty">Nenhum custo confirmado. A inclusão financeira é feita pela conferência dos anexos.</div>}</div>
+function Section({title,onNew}){
+ return <section className="content"><div className="welcome"><div><h2>{title}</h2><p>Módulo preparado para integração com os dados da plataforma.</p></div>{onNew&&<button className="primary" onClick={onNew}>＋ {title==="Colaboradores"?"Novo colaborador":"Nova solicitação"}</button>}</div><article className="panel empty"><div className="empty-icon">□</div><h3>Próxima etapa</h3><p>Este módulo será conectado às tabelas e permissões do Supabase.</p></article></section>
 }
 
-function DossierServiceTab({tab,requestId,days,collabs}) {
- const configs={
-  "Passagens":{table:"tickets",title:"Passagens",fields:[["collaborator_id","Colaborador","select"],["description","Descrição","text"],["cost","Custo","money"],["baggage_included","Bagagem incluída","check"],["baggage_quantity","Qtd. bagagem","number"]]},
-  "Hospedagem":{table:"accommodations",title:"Hospedagem",fields:[["check_in","Check-in","date"],["check_out","Check-out","date"],["provider","Fornecedor","text"],["cost","Custo","money"]]},
-  "Refeições":{table:"meals",title:"Refeições",fields:[["collaborator_id","Colaborador","select"],["meal_date","Data","date"],["meal_type","Tipo","meal"],["uf","UF","uf"],["unit_cost","Valor unitário","money"],["quantity","Quantidade","number"]]},
-  "Lavanderia":{table:"laundry",title:"Lavanderia",fields:[["collaborator_id","Colaborador","select"],["period_days","Período (dias)","number"],["cost","Custo","money"]]},
-  "Uber":{table:"uber_expenses",title:"Uber",fields:[["collaborator_id","Colaborador","select"],["expense_date","Data","date"],["amount","Valor","money"],["description","Descrição","text"]]}
- };
- const cfg=configs[tab];
- if(tab==="Veículo")return <VehicleCrud requestId={requestId}/>;
- if(!cfg)return <div className="panel restriction"><h3>{tab}</h3><p>Esta etapa ainda não possui campos operacionais definidos.</p></div>;
- if(tab==="Lavanderia"&&Number(days)<=7)return <div className="panel restriction"><span className="eyebrow">REGRA DE NEGÓCIO</span><h3>Lavanderia indisponível</h3><p>A lavanderia só pode ser lançada quando o período da OS for superior a 7 dias. Esta OS possui {days} dia(s).</p></div>;
- return <ServiceCrud cfg={cfg} requestId={requestId} collabs={collabs}/>;
+function Modal({active,onClose}){
+ const isPeople=active==="people";
+ return <div className="overlay"><div className="modal" role="dialog" aria-modal="true"><div className="modal-head"><div><span className="eyebrow">CADASTRO</span><h2>{isPeople?"Novo colaborador":"Nova solicitação de viagem"}</h2></div><button className="close" onClick={onClose} aria-label="Fechar">×</button></div>
+ {isPeople?<div className="form-grid"><Field label="Nome completo"/><Field label="CPF"/><Field label="Data de nascimento" type="date"/><Field label="Setor"/><Field label="UF"/></div>:<><div className="form-grid"><Field label="OS"/><Field label="Cliente"/><Field label="Contrato"/><Field label="Estado"/><Field label="Cidade"/><Field label="Gestor"/><Field label="Data inicial" type="date"/><Field label="Data final" type="date"/></div><div className="form-section"><b>Serviços da viagem</b><div className="checks">{["Passagem","Hospedagem","Veículo","Refeições","Lavanderia","Uber"].map(x=><label key={x}><input type="checkbox"/>{x}</label>)}</div></div></>}
+ <div className="modal-actions"><button className="secondary" onClick={onClose}>Cancelar</button><button className="primary" onClick={onClose}>Salvar rascunho</button></div>
+ </div></div>
 }
-
-function VehicleCrud({requestId}) {
- const [row,setRow]=useState(null),[form,setForm]=useState({required:false,conductor_name:"",rental_start:"",rental_end:"",rental_cost:"",toll_cost:"",parking_cost:"",other_cost:""}),[saving,setSaving]=useState(false),[message,setMessage]=useState(""),[error,setError]=useState("");
- async function load(){const {data,error}=await supabase.from("vehicles").select("*").eq("travel_request_id",requestId).maybeSingle();if(error)setError("Não foi possível carregar o veículo.");else if(data){setRow(data);setForm({...data,rental_cost:data.rental_cost||"",toll_cost:data.toll_cost||"",parking_cost:data.parking_cost||"",other_cost:data.other_cost||"",rental_start:data.rental_start?data.rental_start.slice(0,16):"",rental_end:data.rental_end?data.rental_end.slice(0,16):""})}}
- useEffect(()=>{load()},[requestId]);
- function set(k,v){setForm(f=>{const next={...f,[k]:v};if(false&&(k==="meal_type"||k==="uf")){const type=next.meal_type,uf=String(next.uf||"").toUpperCase();next.unit_cost=type==="breakfast"?15:(type==="lunch"&&(uf==="SP")?32:(type==="lunch"&&uf==="RJ")?35:(type==="dinner"&&(uf==="SP"||uf==="RJ"))?35:0)}return next})}
- async function save(e){e.preventDefault();setSaving(true);setError("");setMessage("");const payload={travel_request_id:requestId,required:!!form.required,conductor_name:form.required?form.conductor_name:null,rental_start:form.required&&form.rental_start?new Date(form.rental_start).toISOString():null,rental_end:form.required&&form.rental_end?new Date(form.rental_end).toISOString():null,rental_cost:Number(form.rental_cost||0),toll_cost:Number(form.toll_cost||0),parking_cost:Number(form.parking_cost||0),other_cost:Number(form.other_cost||0)};const q=row?supabase.from("vehicles").update(payload).eq("id",row.id):supabase.from("vehicles").insert(payload);const {error}=await q;if(error)setError(error.message);else{setMessage("✓ Dados do veículo salvos.");load()}setSaving(false)}
- const total=Number(form.rental_cost||0)+Number(form.toll_cost||0)+Number(form.parking_cost||0)+Number(form.other_cost||0);
- return <div className="service-grid"><form className="panel service-form" onSubmit={save}><div><span className="eyebrow">LOCAÇÃO</span><h3>Veículo</h3></div><label>Necessita veículo<span className="inline-check"><input type="checkbox" checked={!!form.required} onChange={e=>set("required",e.target.checked)}/> Sim</span></label>{form.required&&<><label>Condutor<input value={form.conductor_name} onChange={e=>set("conductor_name",e.target.value)} required/></label><label>Início da locação<input type="datetime-local" value={form.rental_start} onChange={e=>set("rental_start",e.target.value)} required/></label><label>Fim da locação<input type="datetime-local" value={form.rental_end} onChange={e=>set("rental_end",e.target.value)} required/></label></>}<label>Custo da locação<input type="number" step="0.01" value={form.rental_cost} onChange={e=>set("rental_cost",e.target.value)}/></label><label>Pedágio<input type="number" step="0.01" value={form.toll_cost} onChange={e=>set("toll_cost",e.target.value)}/></label><label>Estacionamento<input type="number" step="0.01" value={form.parking_cost} onChange={e=>set("parking_cost",e.target.value)}/></label><label>Outros<input type="number" step="0.01" value={form.other_cost} onChange={e=>set("other_cost",e.target.value)}/></label>{error&&<div className="alert">⚠ {error}</div>}{message&&<div className="success-note">{message}</div>}<button className="primary full" disabled={saving}>{saving?"Salvando…":"Salvar veículo"}</button></form><div className="panel"><span className="eyebrow">RESUMO</span><h3>{form.required?"Veículo solicitado":"Sem veículo"}</h3><div className="detail-grid"><div><small>Condutor</small><b>{form.conductor_name||"—"}</b></div><div><small>Total previsto</small><b>{total.toLocaleString("pt-BR",{style:"currency",currency:"BRL"})}</b></div></div><p className="muted">Os valores do veículo permanecem como dados operacionais até serem conferidos/confirmados no consolidado financeiro.</p></div></div>
-}
-function ServiceCrud({cfg,requestId,collabs}) {
- const [rows,setRows]=useState([]),[form,setForm]=useState({}),[saving,setSaving]=useState(false),[error,setError]=useState(""),[message,setMessage]=useState("");
- const initial=Object.fromEntries(cfg.fields.map(([k])=>[k,k==="quantity"?1:k==="baggage_included"?false:""]));
- async function load(){const {data,error}=await supabase.from(cfg.table).select("*").eq("travel_request_id",requestId).order("created_at",{ascending:false});if(error)setError("Não foi possível carregar os lançamentos.");else setRows(data||[])}
- useEffect(()=>{setForm(initial);load()},[requestId,cfg.table]);
- function set(k,v){setForm(f=>({...f,[k]:v}))}
- function money(v){return Number(v||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"})}
- async function save(e){e.preventDefault();setSaving(true);setError("");setMessage("");const payload={travel_request_id:requestId,...form};for(const [k,,type] of cfg.fields){if(type==="money"||type==="number")payload[k]=Number(payload[k]||0);if(type==="check")payload[k]=Boolean(payload[k])}const {error}=await supabase.from(cfg.table).insert(payload);if(error)setError(error.message);else{setMessage("✓ Lançamento salvo.");setForm(initial);load()}setSaving(false)}
- async function remove(id){if(!confirm("Excluir este lançamento?"))return;const {error}=await supabase.from(cfg.table).delete().eq("id",id);if(error)setError("Não foi possível excluir.");else load()}
- function display(field,row){const [k,label,type]=field,v=row[k];if(type==="money")return money(v);if(type==="check")return v?"Sim":"Não";if(type==="select")return collabs.find(c=>c.id===v)?.name||"—";if(type==="meal")return v||"—";return v||"—"}
- return <div className="service-grid"><form className="panel service-form" onSubmit={save}><div><span className="eyebrow">LANÇAMENTO</span><h3>{cfg.title}</h3></div>{cfg.fields.map(([k,label,type])=><label key={k}>{label}{type==="select"?<select value={form[k]||""} onChange={e=>set(k,e.target.value)} required><option value="">Selecione</option>{collabs.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>:type==="check"?<span className="inline-check"><input type="checkbox" checked={!!form[k]} onChange={e=>set(k,e.target.checked)}/> Sim</span>:type==="meal"?<select value={form[k]||""} onChange={e=>set(k,e.target.value)} required><option value="">Selecione</option><option value="breakfast">Café da manhã</option><option value="lunch">Almoço</option><option value="dinner">Jantar</option></select>:<input type={type==="money"||type==="number"?"number":type} step={type==="money"?"0.01":type==="number"?"1":undefined} value={form[k]??""} onChange={e=>set(k,e.target.value)} readOnly={cfg.table==="meals"&&k==="unit_cost"} required={["date","money","select","meal"].includes(type)}/>}</label>)}{error&&<div className="alert">⚠ {error}</div>}{message&&<div className="success-note">{message}</div>}<button className="primary full" disabled={saving}>{saving?"Salvando…":"Adicionar lançamento"}</button></form><div className="panel"><div className="panel-head"><div><span className="eyebrow">HISTÓRICO</span><h3>{cfg.title} cadastrados</h3></div><span className="pill">{rows.length}</span></div>{rows.length?rows.map(row=><div className="service-row" key={row.id}><div><b>{cfg.fields.map(f=>display(f,row)).join(" · ")}</b><small>{row.created_at?new Date(row.created_at).toLocaleString("pt-BR"):""}</small></div><div className="file-actions"><strong>{row.cost!=null?money(row.cost):row.amount!=null?money(row.amount):row.unit_cost!=null?money(Number(row.unit_cost)*Number(row.quantity||1)):""}</strong><button className="danger-btn" onClick={()=>remove(row.id)}>Excluir</button></div></div>):<div className="empty">Nenhum lançamento cadastrado.</div>}</div></div>
-}
-function DossierPlaceholder({tab}){return <div className="panel dossier-placeholder"><div className="module-icon">◆</div><span className="eyebrow">MÓDULO {tab.toUpperCase()}</span><h3>{tab}</h3><p>Estrutura reservada para o lançamento e consolidação desta etapa dentro do dossiê da OS.</p><span className="pill">Próxima implementação</span></div>
-}
-
-function Module({title}){return <section className="content"><div className="module-empty"><div className="module-icon">◆</div><h2>{title}</h2><p>Este módulo está preparado para receber a próxima etapa funcional da plataforma.</p></div></section>}
+function Field({label,type="text"}){return <label className="field"><span>{label}</span><input type={type} /></label>}
 
 createRoot(document.getElementById("root")).render(<App/>);
