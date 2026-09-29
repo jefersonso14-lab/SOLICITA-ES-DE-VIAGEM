@@ -83,6 +83,41 @@ export async function listTravelRequests() {
   return data || [];
 }
 
+export async function listCostComposition(travelRequestId) {
+  const client = requireSupabase();
+  const [costs, tickets, hotels, vehicles, meals, laundry, uber] = await Promise.all([
+    client.from("costs").select("id,category,amount,collaborator_id,description,cost_date,source").eq("travel_request_id", travelRequestId),
+    client.from("tickets").select("id,cost,collaborator_id,baggage_included,baggage_quantity").eq("travel_request_id", travelRequestId),
+    client.from("accommodations").select("id,cost,provider,check_in,check_out").eq("travel_request_id", travelRequestId),
+    client.from("vehicles").select("id,rental_cost,toll_cost,parking_cost,other_cost,required").eq("travel_request_id", travelRequestId),
+    client.from("meals").select("id,unit_cost,quantity,collaborator_id,meal_type,meal_date").eq("travel_request_id", travelRequestId),
+    client.from("laundry").select("id,cost,collaborator_id,period_days").eq("travel_request_id", travelRequestId),
+    client.from("uber_expenses").select("id,amount,collaborator_id,expense_date,description").eq("travel_request_id", travelRequestId)
+  ]);
+  for (const result of [costs,tickets,hotels,vehicles,meals,laundry,uber]) if (result.error) throw result.error;
+
+  const rows = [];
+  (costs.data || []).forEach(x => rows.push({ category:x.category, amount:Number(x.amount||0), collaborator_id:x.collaborator_id, source:x.source || "manual", description:x.description || "" }));
+  (tickets.data || []).forEach(x => {
+    rows.push({ category:"ticket", amount:Number(x.cost||0), collaborator_id:x.collaborator_id, source:"ticket", description:x.description || "Passagem" });
+    if (x.baggage_included) rows.push({ category:"baggage", amount:0, collaborator_id:x.collaborator_id, source:"ticket", description:`Bagagem: ${x.baggage_quantity || 0}` });
+  });
+  (hotels.data || []).forEach(x => rows.push({ category:"hotel", amount:Number(x.cost||0), source:"accommodation", description:x.provider || "Hospedagem" }));
+  (vehicles.data || []).forEach(x => {
+    [["vehicle",x.rental_cost],["toll",x.toll_cost],["parking",x.parking_cost],["other",x.other_cost]].forEach(([category,amount]) => { if (Number(amount||0) > 0) rows.push({category,amount:Number(amount),source:"vehicle",description:category}); });
+  });
+  (meals.data || []).forEach(x => rows.push({ category:"meal", amount:Number(x.unit_cost||0)*Number(x.quantity||1), collaborator_id:x.collaborator_id, source:"meal", description:x.meal_type }));
+  (laundry.data || []).forEach(x => rows.push({ category:"laundry", amount:Number(x.cost||0), collaborator_id:x.collaborator_id, source:"laundry", description:`Período ${x.period_days} dias` }));
+  (uber.data || []).forEach(x => rows.push({ category:"uber", amount:Number(x.amount||0), collaborator_id:x.collaborator_id, source:"uber", description:x.description || "Uber" }));
+
+  const byCategory = rows.reduce((a,x) => { a[x.category]=(a[x.category]||0)+x.amount; return a; }, {});
+  const byCollaborator = rows.reduce((a,x) => {
+    const key=x.collaborator_id || "sem-colaborador";
+    a[key]=(a[key]||0)+x.amount; return a;
+  }, {});
+  return { rows, byCategory, byCollaborator, total: rows.reduce((s,x)=>s+x.amount,0) };
+}
+
 export async function listCosts() {
   const { data, error } = await requireSupabase().from("costs")
     .select("id,travel_request_id,category,description,amount,cost_date,source,created_at,travel_request:travel_requests(os,city,state)")
