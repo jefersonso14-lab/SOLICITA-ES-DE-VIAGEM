@@ -5,6 +5,8 @@ import {
   createTravelRequest,
   ensureRequesterProfile,
   listClients,
+  listCosts,
+  createCost,
   listCollaborators,
   listContracts,
   listTravelRequests,
@@ -100,6 +102,7 @@ function AuthenticatedApp({ profile }) {
   const [collaborators, setCollaborators] = useState([]);
   const [clients, setClients] = useState([]);
   const [contracts, setContracts] = useState([]);
+  const [costs, setCosts] = useState([]);
   const [notice, setNotice] = useState("");
 
   const title = useMemo(() => menu.find(([id]) => id === active)?.[1] || "Dashboard", [active]);
@@ -118,6 +121,11 @@ function AuthenticatedApp({ profile }) {
     } catch (error) { setNotice(error.message || "Erro ao consultar colaboradores."); }
   }
 
+  async function refreshCosts() {
+    try { setCosts(await listCosts()); }
+    catch (error) { setNotice(error.message || "Erro ao consultar custos."); }
+  }
+
   async function refreshCatalogs() {
     try {
       const [clientResult, contractResult] = await Promise.all([listClients(), listContracts()]);
@@ -129,7 +137,7 @@ function AuthenticatedApp({ profile }) {
   }
 
   useEffect(() => {
-    refreshRequests(); refreshCollaborators(); refreshCatalogs();
+    refreshRequests(); refreshCollaborators(); refreshCatalogs(); refreshCosts();
   }, []);
 
   async function handleSaveRequest(form) {
@@ -139,6 +147,15 @@ function AuthenticatedApp({ profile }) {
       setModal(null);
       await refreshRequests();
     } catch (error) { setNotice(error.message || "Não foi possível salvar a solicitação."); }
+  }
+
+  async function handleSaveCost(form) {
+    try {
+      await createCost(form);
+      setNotice("Custo lançado com sucesso.");
+      setModal(null);
+      await refreshCosts();
+    } catch (error) { setNotice(error.message || "Não foi possível lançar o custo."); }
   }
 
   async function handleSaveCollaborator(form) {
@@ -175,11 +192,13 @@ function AuthenticatedApp({ profile }) {
       {active === "dashboard" && <Dashboard requests={requests} search={search} setSearch={setSearch} onNew={() => setModal("request")} />}
       {active === "requests" && <Requests requests={requests} search={search} setSearch={setSearch} onNew={() => setModal("request")} />}
       {active === "people" && <People collaborators={collaborators} search={search} setSearch={setSearch} onNew={canManage ? () => setModal("people") : undefined} />}
-      {!["dashboard", "requests", "people"].includes(active) && <Section title={title} />}
+      {active === "costs" && <Costs costs={costs} requests={requests} canManage={canManage} onNew={canManage ? () => setModal("cost") : undefined} />}
+      {!["dashboard", "requests", "people", "costs"].includes(active) && <Section title={title} />}
     </main>
 
     {modal === "request" && <RequestModal clients={clients} contracts={contracts} collaborators={collaborators} onClose={() => setModal(null)} onSave={handleSaveRequest} />}
     {modal === "people" && <CollaboratorModal onClose={() => setModal(null)} onSave={handleSaveCollaborator} />}
+    {modal === "cost" && <CostModal requests={requests} collaborators={collaborators} onClose={() => setModal(null)} onSave={handleSaveCost} />}
   </div>;
 }
 
@@ -221,6 +240,54 @@ function People({ collaborators, search, setSearch, onNew }) {
       </tbody></table></div>
     </article>
   </section>;
+}
+
+function Costs({ costs, requests, canManage, onNew }) {
+  const total = costs.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const byCategory = costs.reduce((acc, item) => {
+    acc[item.category] = (acc[item.category] || 0) + Number(item.amount || 0);
+    return acc;
+  }, {});
+  const labels = { ticket: "Passagens", baggage: "Bagagem", hotel: "Hotel", vehicle: "Veículo", toll: "Pedágio", parking: "Estacionamento", fuel: "Combustível", meal: "Refeições", laundry: "Lavanderia", uber: "Uber", other: "Outros" };
+
+  return <section className="content">
+    <div className="welcome"><div><h2>Custos</h2><p>Consolidação financeira das solicitações acessíveis ao usuário.</p></div>{onNew && <button className="primary" onClick={onNew}>＋ Lançar custo</button>}</div>
+    <div className="stats">
+      <Stat label="Total consolidado" value={money(total)} note={costs.length + " lançamento(s)"} />
+      <Stat label="Passagens" value={money(byCategory.ticket || 0)} note="Categoria ticket" />
+      <Stat label="Hospedagem" value={money(byCategory.hotel || 0)} note="Categoria hotel" />
+      <Stat label="Outros" value={money((byCategory.other || 0) + (byCategory.uber || 0) + (byCategory.vehicle || 0))} note="Outras categorias" />
+    </div>
+    <article className="panel wide"><div className="panel-head"><div><h3>Lançamentos</h3><p>Valores financeiros seguem controle por perfil.</p></div></div>
+      <div className="table-wrap"><table><thead><tr><th>OS</th><th>Categoria</th><th>Descrição</th><th>Data</th><th>Valor</th><th>Origem</th></tr></thead><tbody>
+        {costs.length ? costs.map((c) => <tr key={c.id}><td><b>{c.travel_request?.os || requests.find(r => r.id === c.travel_request_id)?.os || "—"}</b></td><td>{labels[c.category] || c.category}</td><td>{c.description || "—"}</td><td>{formatDate(c.cost_date)}</td><td><b>{money(c.amount)}</b></td><td>{c.source || "manual"}</td></tr>) : <tr><td colSpan="6" className="table-empty">Nenhum custo lançado.</td></tr>}
+      </tbody></table></div>
+    </article>
+  </section>;
+}
+
+function CostModal({ requests, collaborators, onClose, onSave }) {
+  const [form, setForm] = useState({ travel_request_id: "", category: "ticket", description: "", amount: "", cost_date: "", collaborator_id: "", source: "manual" });
+  const [busy, setBusy] = useState(false);
+  const set = (key, value) => setForm(current => ({ ...current, [key]: value }));
+  async function submit(event) {
+    event.preventDefault();
+    if (!form.travel_request_id || !form.category || Number(form.amount) < 0) return;
+    setBusy(true); await onSave(form); setBusy(false);
+  }
+  const categories = [["ticket","Passagem"],["baggage","Bagagem"],["hotel","Hotel"],["vehicle","Veículo"],["toll","Pedágio"],["parking","Estacionamento"],["fuel","Combustível"],["meal","Refeição"],["laundry","Lavanderia"],["uber","Uber"],["other","Outros"]];
+  return <ModalShell title="Lançar custo" onClose={onClose}><form onSubmit={submit}>
+    <div className="form-grid">
+      <SelectField label="OS" value={form.travel_request_id} onChange={v => set("travel_request_id", v)} options={requests.map(r => [r.id, r.os + " — " + [r.city,r.state].filter(Boolean).join("/")])} placeholder="Selecione a OS" />
+      <SelectField label="Categoria" value={form.category} onChange={v => set("category", v)} options={categories} placeholder="Selecione" />
+      <Field label="Valor (R$)" type="number" value={form.amount} onChange={v => set("amount", v)} />
+      <Field label="Data" type="date" value={form.cost_date} onChange={v => set("cost_date", v)} />
+      <SelectField label="Colaborador (opcional)" value={form.collaborator_id} onChange={v => set("collaborator_id", v)} options={collaborators.map(p => [p.id, p.name])} placeholder="Todos / não informado" />
+      <Field label="Origem" value={form.source} onChange={v => set("source", v)} />
+    </div>
+    <div className="form-section"><Field label="Descrição" value={form.description} onChange={v => set("description", v)} /></div>
+    <div className="modal-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary" disabled={busy}>{busy ? "Salvando..." : "Salvar custo"}</button></div>
+  </form></ModalShell>;
 }
 
 function Section({ title }) {
@@ -298,5 +365,6 @@ function SelectField({ label, value, onChange, options, placeholder }) {
 function Stat({ label, value, note }) { return <article className="stat"><span>{label}</span><strong>{value}</strong><small>{note}</small></article>; }
 function initials(name) { return (name || "US").split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase(); }
 function formatDate(value) { if (!value) return "—"; const [year, month, day] = value.split("-"); return year && month && day ? `${day}/${month}/${year}` : value; }
+function money(value) { return Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
 
 createRoot(document.getElementById("root")).render(<App />);
