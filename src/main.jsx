@@ -7,6 +7,7 @@ import {
   listClients,
   listCosts,
   createCost,
+  listCostComposition,
   listCollaborators,
   listContracts,
   listTravelRequests,
@@ -243,6 +244,21 @@ function People({ collaborators, search, setSearch, onNew }) {
 }
 
 function Costs({ costs, requests, canManage, onNew }) {
+  const [selectedOs, setSelectedOs] = useState("");
+  const [composition, setComposition] = useState(null);
+  const [loadingComposition, setLoadingComposition] = useState(false);
+
+  useEffect(() => {
+    if (!selectedOs && requests[0]?.id) setSelectedOs(requests[0].id);
+  }, [requests, selectedOs]);
+
+  useEffect(() => {
+    if (!selectedOs) { setComposition(null); return; }
+    setLoadingComposition(true);
+    listCostComposition(selectedOs).then(setComposition).catch(() => setComposition(null)).finally(() => setLoadingComposition(false));
+  }, [selectedOs]);
+
+  const allTotal = costs.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const total = costs.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const byCategory = costs.reduce((acc, item) => {
     acc[item.category] = (acc[item.category] || 0) + Number(item.amount || 0);
@@ -253,11 +269,17 @@ function Costs({ costs, requests, canManage, onNew }) {
   return <section className="content">
     <div className="welcome"><div><h2>Custos</h2><p>Consolidação financeira das solicitações acessíveis ao usuário.</p></div>{onNew && <button className="primary" onClick={onNew}>＋ Lançar custo</button>}</div>
     <div className="stats">
-      <Stat label="Total consolidado" value={money(total)} note={costs.length + " lançamento(s)"} />
+      <Stat label="Total dos lançamentos" value={money(allTotal)} note={costs.length + " lançamento(s)"} />
       <Stat label="Passagens" value={money(byCategory.ticket || 0)} note="Categoria ticket" />
       <Stat label="Hospedagem" value={money(byCategory.hotel || 0)} note="Categoria hotel" />
       <Stat label="Outros" value={money((byCategory.other || 0) + (byCategory.uber || 0) + (byCategory.vehicle || 0))} note="Outras categorias" />
     </div>
+    <article className="panel wide"><div className="panel-head"><div><h3>Composição automática por OS</h3><p>O total considera custos manuais e serviços estruturados da OS.</p></div><SelectField label="" value={selectedOs} onChange={setSelectedOs} options={requests.map(r => [r.id, r.os + " — " + [r.city,r.state].filter(Boolean).join("/")])} placeholder="Selecione a OS" /></div>
+      {loadingComposition ? <p>Calculando composição...</p> : composition ? <div className="cost-composition">
+        <div className="composition-total"><span>Total da OS</span><strong>{money(composition.total)}</strong></div>
+        <div className="composition-grid">{Object.entries(composition.byCategory).map(([key,value]) => <div className="composition-item" key={key}><span>{({ticket:"Passagens",baggage:"Bagagem",hotel:"Hotel",vehicle:"Veículo",toll:"Pedágio",parking:"Estacionamento",other:"Outros",meal:"Refeições",laundry:"Lavanderia",uber:"Uber",fuel:"Combustível"})[key] || key}</span><b>{money(value)}</b></div>)}</div>
+      </div> : <p>Selecione uma OS para calcular.</p>}
+    </article>
     <article className="panel wide"><div className="panel-head"><div><h3>Lançamentos</h3><p>Valores financeiros seguem controle por perfil.</p></div></div>
       <div className="table-wrap"><table><thead><tr><th>OS</th><th>Categoria</th><th>Descrição</th><th>Data</th><th>Valor</th><th>Origem</th></tr></thead><tbody>
         {costs.length ? costs.map((c) => <tr key={c.id}><td><b>{c.travel_request?.os || requests.find(r => r.id === c.travel_request_id)?.os || "—"}</b></td><td>{labels[c.category] || c.category}</td><td>{c.description || "—"}</td><td>{formatDate(c.cost_date)}</td><td><b>{money(c.amount)}</b></td><td>{c.source || "manual"}</td></tr>) : <tr><td colSpan="6" className="table-empty">Nenhum custo lançado.</td></tr>}
