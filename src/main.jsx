@@ -8,6 +8,7 @@ import {
   listCosts,
   createCost,
   listCostComposition,
+  saveTravelService,
   listCollaborators,
   listContracts,
   listTravelRequests,
@@ -193,13 +194,14 @@ function AuthenticatedApp({ profile }) {
       {active === "dashboard" && <Dashboard requests={requests} search={search} setSearch={setSearch} onNew={() => setModal("request")} />}
       {active === "requests" && <Requests requests={requests} search={search} setSearch={setSearch} onNew={() => setModal("request")} />}
       {active === "people" && <People collaborators={collaborators} search={search} setSearch={setSearch} onNew={canManage ? () => setModal("people") : undefined} />}
-      {active === "costs" && <Costs costs={costs} requests={requests} canManage={canManage} onNew={canManage ? () => setModal("cost") : undefined} />}
+      {active === "costs" && <Costs costs={costs} requests={requests} canManage={canManage} onNew={canManage ? () => setModal("cost") : undefined} onServices={canManage ? () => setModal("services") : undefined} />}
       {!["dashboard", "requests", "people", "costs"].includes(active) && <Section title={title} />}
     </main>
 
     {modal === "request" && <RequestModal clients={clients} contracts={contracts} collaborators={collaborators} onClose={() => setModal(null)} onSave={handleSaveRequest} />}
     {modal === "people" && <CollaboratorModal onClose={() => setModal(null)} onSave={handleSaveCollaborator} />}
     {modal === "cost" && <CostModal requests={requests} collaborators={collaborators} onClose={() => setModal(null)} onSave={handleSaveCost} />}
+    {modal === "services" && <ServiceModal requests={requests} collaborators={collaborators} onClose={() => setModal(null)} onSave={async (type, payload) => { try { await saveTravelService(type, payload); setNotice("Serviço registrado. A composição da OS foi atualizada."); setModal(null); } catch (error) { setNotice(error.message || "Não foi possível registrar o serviço."); } }} />}
   </div>;
 }
 
@@ -243,7 +245,7 @@ function People({ collaborators, search, setSearch, onNew }) {
   </section>;
 }
 
-function Costs({ costs, requests, canManage, onNew }) {
+function Costs({ costs, requests, canManage, onNew, onServices }) {
   const [selectedOs, setSelectedOs] = useState("");
   const [composition, setComposition] = useState(null);
   const [loadingComposition, setLoadingComposition] = useState(false);
@@ -266,7 +268,7 @@ function Costs({ costs, requests, canManage, onNew }) {
   const labels = { ticket: "Passagens", baggage: "Bagagem", hotel: "Hotel", vehicle: "Veículo", toll: "Pedágio", parking: "Estacionamento", fuel: "Combustível", meal: "Refeições", laundry: "Lavanderia", uber: "Uber", other: "Outros" };
 
   return <section className="content">
-    <div className="welcome"><div><h2>Custos</h2><p>Consolidação financeira das solicitações acessíveis ao usuário.</p></div>{onNew && <button className="primary" onClick={onNew}>＋ Lançar custo</button>}</div>
+    <div className="welcome"><div><h2>Custos</h2><p>Consolidação financeira das solicitações acessíveis ao usuário.</p></div>{onServices && <button className="secondary" onClick={onServices}>＋ Compor OS</button>}{onNew && <button className="primary" onClick={onNew}>＋ Lançar custo</button>}</div>
     <div className="stats">
       <Stat label="Total dos lançamentos" value={money(allTotal)} note={costs.length + " lançamento(s)"} />
       <Stat label="Passagens" value={money(byCategory.ticket || 0)} note="Categoria ticket" />
@@ -285,6 +287,34 @@ function Costs({ costs, requests, canManage, onNew }) {
       </tbody></table></div>
     </article>
   </section>;
+}
+
+function ServiceModal({ requests, collaborators, onClose, onSave }) {
+  const [type,setType]=useState("ticket");
+  const [form,setForm]=useState({travel_request_id:requests[0]?.id||"", collaborator_id:"", cost:"", description:"", baggage_included:false, baggage_quantity:0, provider:"", check_in:"", check_out:"", rental_cost:"", toll_cost:"", parking_cost:"", other_cost:"", required:true, conductor_name:"", meal_date:"", meal_type:"lunch", uf:"SP", unit_cost:"", quantity:1, period_days:"", amount:"", expense_date:""});
+  const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+  const submit=e=>{e.preventDefault(); const p={travel_request_id:form.travel_request_id}; if(form.collaborator_id)p.collaborator_id=form.collaborator_id;
+    if(type==="ticket") Object.assign(p,{cost:Number(form.cost||0),description:form.description||null,baggage_included:form.baggage_included,baggage_quantity:Number(form.baggage_quantity||0)});
+    if(type==="accommodation") Object.assign(p,{cost:Number(form.cost||0),provider:form.provider||null,check_in:form.check_in||null,check_out:form.check_out||null});
+    if(type==="vehicle") Object.assign(p,{required:form.required,conductor_name:form.conductor_name||null,rental_cost:Number(form.rental_cost||0),toll_cost:Number(form.toll_cost||0),parking_cost:Number(form.parking_cost||0),other_cost:Number(form.other_cost||0)});
+    if(type==="meal") Object.assign(p,{meal_date:form.meal_date||null,meal_type:form.meal_type,uf:form.uf,unit_cost:Number(form.unit_cost||0),quantity:Number(form.quantity||1)});
+    if(type==="laundry") Object.assign(p,{period_days:Number(form.period_days||0),cost:Number(form.cost||0)});
+    if(type==="uber") Object.assign(p,{expense_date:form.expense_date||null,amount:Number(form.amount||0),description:form.description||null});
+    onSave(type,p);
+  };
+  const title={ticket:"Passagem",accommodation:"Hospedagem",vehicle:"Veículo",meal:"Refeição",laundry:"Lavanderia",uber:"Uber"}[type];
+  return <div className="modal-backdrop"><form className="modal" onSubmit={submit}><div className="modal-head"><div><span className="eyebrow">COMPOSIÇÃO DA OS</span><h3>{title}</h3></div><button type="button" className="icon-button" onClick={onClose}>×</button></div>
+    <SelectField label="OS" value={form.travel_request_id} onChange={v=>set("travel_request_id",v)} options={requests.map(r=>[r.id,r.os+" — "+[r.city,r.state].filter(Boolean).join("/")])} required />
+    <SelectField label="Tipo de serviço" value={type} onChange={setType} options={[["ticket","Passagem"],["accommodation","Hospedagem"],["vehicle","Veículo"],["meal","Refeição"],["laundry","Lavanderia"],["uber","Uber"]]} />
+    {["ticket","meal","laundry","uber"].includes(type) && <SelectField label="Colaborador" value={form.collaborator_id} onChange={v=>set("collaborator_id",v)} options={collaborators.map(x=>[x.id,x.name])} placeholder="Sem colaborador" />}
+    {type==="ticket" && <><Field label="Valor da passagem" type="number" step="0.01" value={form.cost} onChange={v=>set("cost",v)} required /><Field label="Descrição" value={form.description} onChange={v=>set("description",v)} /><label className="check"><input type="checkbox" checked={form.baggage_included} onChange={e=>set("baggage_included",e.target.checked)}/> Bagagem incluída</label>{form.baggage_included&&<Field label="Quantidade de bagagens" type="number" value={form.baggage_quantity} onChange={v=>set("baggage_quantity",v)}/>}</>}
+    {type==="accommodation" && <><Field label="Fornecedor" value={form.provider} onChange={v=>set("provider",v)}/><Field label="Check-in" type="date" value={form.check_in} onChange={v=>set("check_in",v)}/><Field label="Check-out" type="date" value={form.check_out} onChange={v=>set("check_out",v)}/><Field label="Custo" type="number" step="0.01" value={form.cost} onChange={v=>set("cost",v)} required /></>}
+    {type==="vehicle" && <><label className="check"><input type="checkbox" checked={form.required} onChange={e=>set("required",e.target.checked)}/> Veículo necessário</label>{form.required&&<><Field label="Condutor" value={form.conductor_name} onChange={v=>set("conductor_name",v)}/><Field label="Locação" type="number" step="0.01" value={form.rental_cost} onChange={v=>set("rental_cost",v)}/><Field label="Pedágio" type="number" step="0.01" value={form.toll_cost} onChange={v=>set("toll_cost",v)}/><Field label="Estacionamento" type="number" step="0.01" value={form.parking_cost} onChange={v=>set("parking_cost",v)}/><Field label="Outros" type="number" step="0.01" value={form.other_cost} onChange={v=>set("other_cost",v)}/></>}</>}
+    {type==="meal" && <><Field label="Data" type="date" value={form.meal_date} onChange={v=>set("meal_date",v)}/><SelectField label="Refeição" value={form.meal_type} onChange={v=>set("meal_type",v)} options={[["breakfast","Café da manhã"],["lunch","Almoço"],["dinner","Jantar"]]} /><SelectField label="UF" value={form.uf} onChange={v=>set("uf",v)} options={["SP","RJ","MG","PR","SC","RS","BA","PE","CE","AM","PA","GO","DF"].map(x=>[x,x])}/><Field label="Valor unitário" type="number" step="0.01" value={form.unit_cost} onChange={v=>set("unit_cost",v)} required/><Field label="Quantidade" type="number" value={form.quantity} onChange={v=>set("quantity",v)} /></>}
+    {type==="laundry" && <><Field label="Período (dias)" type="number" value={form.period_days} onChange={v=>set("period_days",v)} required/><Field label="Custo" type="number" step="0.01" value={form.cost} onChange={v=>set("cost",v)} required/></>}
+    {type==="uber" && <><Field label="Data" type="date" value={form.expense_date} onChange={v=>set("expense_date",v)}/><Field label="Valor" type="number" step="0.01" value={form.amount} onChange={v=>set("amount",v)} required/><Field label="Descrição" value={form.description} onChange={v=>set("description",v)}/></>}
+    <div className="modal-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary" type="submit">Salvar serviço</button></div>
+  </form></div>;
 }
 
 function CostModal({ requests, collaborators, onClose, onSave }) {
