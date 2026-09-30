@@ -197,7 +197,7 @@ function AuthenticatedApp({ profile }) {
       {active === "dashboard" && <Dashboard requests={requests} search={search} setSearch={setSearch} onNew={() => setModal("request")} />}
       {active === "requests" && <Requests requests={requests} search={search} setSearch={setSearch} onNew={() => setModal("request")} />}
       {active === "people" && <People collaborators={collaborators} search={search} setSearch={setSearch} onNew={canManage ? () => setModal("people") : undefined} />}
-      {active === "costs" && <Costs costs={costs} requests={requests} canManage={canManage} refreshVersion={costRefreshVersion} onNew={canManage ? () => setModal("cost") : undefined} onServices={canManage ? () => setModal("services") : undefined} />}
+      {active === "costs" && <Costs costs={costs} requests={requests} collaborators={collaborators} canManage={canManage} refreshVersion={costRefreshVersion} onCostsUpdated={refreshCosts} onNew={canManage ? () => setModal("cost") : undefined} onServices={canManage ? () => setModal("services") : undefined} />}
       {!["dashboard", "requests", "people", "costs"].includes(active) && <Section title={title} />}
     </main>
 
@@ -248,7 +248,7 @@ function People({ collaborators, search, setSearch, onNew }) {
   </section>;
 }
 
-function Costs({ costs, requests, canManage, refreshVersion, onNew, onServices }) {
+function Costs({ costs, requests, collaborators, canManage, refreshVersion, onCostsUpdated, onNew, onServices }) {
   const [selectedOs, setSelectedOs] = useState("");
   const [composition, setComposition] = useState(null);
   const [loadingComposition, setLoadingComposition] = useState(false);
@@ -273,7 +273,7 @@ function Costs({ costs, requests, canManage, refreshVersion, onNew, onServices }
     try {
       const result = await syncTravelRequestCosts(selectedOs);
       setComposition(await listCostComposition(selectedOs));
-      window.dispatchEvent(new CustomEvent("travel-costs-updated"));
+      await onCostsUpdated?.();
       alert(`Custos consolidados: ${result.inserted || 0} lançamento(s) · ${money(result.total || 0)}`);
     } catch (error) {
       alert(error.message || "Não foi possível consolidar os custos.");
@@ -299,6 +299,7 @@ function Costs({ costs, requests, canManage, refreshVersion, onNew, onServices }
       {loadingComposition ? <p>Calculando composição...</p> : composition ? <div className="cost-composition">
         <div className="composition-total"><span>Total da OS</span><strong>{money(composition.total)}</strong></div>
         <div className="composition-grid">{Object.entries(composition.byCategory).map(([key,value]) => <div className="composition-item" key={key}><span>{({ticket:"Passagens",baggage:"Bagagem",hotel:"Hotel",vehicle:"Veículo",toll:"Pedágio",parking:"Estacionamento",other:"Outros",meal:"Refeições",laundry:"Lavanderia",uber:"Uber",fuel:"Combustível"})[key] || key}</span><b>{money(value)}</b></div>)}</div>
+        {Object.keys(composition.byCollaborator || {}).length > 0 && <div className="collaborator-costs"><h4>Custo por colaborador</h4>{Object.entries(composition.byCollaborator).map(([id,value]) => <div className="collaborator-cost-row" key={id}><span>{collaborators.find(c => c.id === id)?.name || "Não identificado"}</span><b>{money(value)}</b></div>)}</div>}
       </div> : <p>Selecione uma OS para calcular.</p>}
     </article>
     <article className="panel wide"><div className="panel-head"><div><h3>Lançamentos</h3><p>Valores financeiros seguem controle por perfil.</p></div></div>
