@@ -83,6 +83,14 @@ export async function listTravelRequests() {
   return data || [];
 }
 
+export async function listTravelRequestCollaborators(travelRequestId) {
+  const { data, error } = await requireSupabase().from("travel_request_collaborators")
+    .select("collaborator:collaborators(id,name,cpf)")
+    .eq("travel_request_id", travelRequestId);
+  if (error) throw error;
+  return (data || []).map(x => x.collaborator).filter(Boolean);
+}
+
 export async function saveTravelService(type, payload) {
   const client = requireSupabase();
   const tables = { ticket:"tickets", accommodation:"accommodations", vehicle:"vehicles", meal:"meals", laundry:"laundry", uber:"uber_expenses" };
