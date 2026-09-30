@@ -292,6 +292,8 @@ function Costs({ costs, requests, canManage, onNew, onServices }) {
 function ServiceModal({ requests, collaborators, onClose, onSave }) {
   const [type,setType]=useState("ticket");
   const [form,setForm]=useState({travel_request_id:requests[0]?.id||"", collaborator_id:"", cost:"", description:"", baggage_included:false, baggage_quantity:0, provider:"", check_in:"", check_out:"", rental_cost:"", toll_cost:"", parking_cost:"", other_cost:"", required:true, conductor_name:"", meal_date:"", meal_type:"lunch", uf:"SP", unit_cost:"", quantity:1, period_days:"", amount:"", expense_date:""});
+  const selectedRequest = requests.find(r => r.id === form.travel_request_id);
+  const requestDays = Number(selectedRequest?.days || 0);
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
   useEffect(() => {
     if (type !== "meal") return;
@@ -304,7 +306,7 @@ function ServiceModal({ requests, collaborators, onClose, onSave }) {
     if(type==="vehicle") Object.assign(p,{required:form.required,conductor_name:form.conductor_name||null,rental_cost:Number(form.rental_cost||0),toll_cost:Number(form.toll_cost||0),parking_cost:Number(form.parking_cost||0),other_cost:Number(form.other_cost||0)});
     if(type==="meal") Object.assign(p,{meal_date:form.meal_date||null,meal_type:form.meal_type,uf:form.uf,unit_cost:Number(form.unit_cost||0),quantity:Number(form.quantity||1)});
     if(type==="laundry") {
-      const days = Number(form.period_days || 0);
+      const days = requestDays || Number(form.period_days || 0);
       if (days <= 7) { setForm(f => ({...f, period_days: ""})); return; }
       Object.assign(p,{period_days:days,cost:Number(form.cost||0)});
     }
@@ -315,12 +317,13 @@ function ServiceModal({ requests, collaborators, onClose, onSave }) {
   return <div className="modal-backdrop"><form className="modal" onSubmit={submit}><div className="modal-head"><div><span className="eyebrow">COMPOSIÇÃO DA OS</span><h3>{title}</h3></div><button type="button" className="icon-button" onClick={onClose}>×</button></div>
     <SelectField label="OS" value={form.travel_request_id} onChange={v=>set("travel_request_id",v)} options={requests.map(r=>[r.id,r.os+" — "+[r.city,r.state].filter(Boolean).join("/")])} required />
     <SelectField label="Tipo de serviço" value={type} onChange={setType} options={[["ticket","Passagem"],["accommodation","Hospedagem"],["vehicle","Veículo"],["meal","Refeição"],["laundry","Lavanderia"],["uber","Uber"]]} />
+    {selectedRequest && <div className="notice"><b>Período da OS:</b> {requestDays} dia(s) · {formatDate(selectedRequest.start_date)} a {formatDate(selectedRequest.end_date)}</div>}
     {["ticket","meal","laundry","uber"].includes(type) && <SelectField label="Colaborador" value={form.collaborator_id} onChange={v=>set("collaborator_id",v)} options={collaborators.map(x=>[x.id,x.name])} placeholder="Sem colaborador" />}
     {type==="ticket" && <><Field label="Valor da passagem" type="number" step="0.01" value={form.cost} onChange={v=>set("cost",v)} required /><Field label="Descrição" value={form.description} onChange={v=>set("description",v)} /><label className="check"><input type="checkbox" checked={form.baggage_included} onChange={e=>set("baggage_included",e.target.checked)}/> Bagagem incluída</label>{form.baggage_included&&<Field label="Quantidade de bagagens" type="number" value={form.baggage_quantity} onChange={v=>set("baggage_quantity",v)}/>}</>}
     {type==="accommodation" && <><Field label="Fornecedor" value={form.provider} onChange={v=>set("provider",v)}/><Field label="Check-in" type="date" value={form.check_in} onChange={v=>set("check_in",v)}/><Field label="Check-out" type="date" value={form.check_out} onChange={v=>set("check_out",v)}/><Field label="Custo" type="number" step="0.01" value={form.cost} onChange={v=>set("cost",v)} required /></>}
     {type==="vehicle" && <><label className="check"><input type="checkbox" checked={form.required} onChange={e=>set("required",e.target.checked)}/> Veículo necessário</label>{form.required&&<><Field label="Condutor" value={form.conductor_name} onChange={v=>set("conductor_name",v)}/><Field label="Locação" type="number" step="0.01" value={form.rental_cost} onChange={v=>set("rental_cost",v)}/><Field label="Pedágio" type="number" step="0.01" value={form.toll_cost} onChange={v=>set("toll_cost",v)}/><Field label="Estacionamento" type="number" step="0.01" value={form.parking_cost} onChange={v=>set("parking_cost",v)}/><Field label="Outros" type="number" step="0.01" value={form.other_cost} onChange={v=>set("other_cost",v)}/></>}</>}
     {type==="meal" && <><Field label="Data" type="date" value={form.meal_date} onChange={v=>set("meal_date",v)}/><SelectField label="Refeição" value={form.meal_type} onChange={v=>set("meal_type",v)} options={[["breakfast","Café da manhã"],["lunch","Almoço"],["dinner","Jantar"]]} /><SelectField label="UF" value={form.uf} onChange={v=>set("uf",v)} options={["SP","RJ","MG","PR","SC","RS","BA","PE","CE","AM","PA","GO","DF"].map(x=>[x,x])}/><Field label="Valor unitário" type="number" step="0.01" value={form.unit_cost} onChange={v=>set("unit_cost",v)} required/><Field label="Quantidade" type="number" value={form.quantity} onChange={v=>set("quantity",v)} /></>}
-    {type==="laundry" && <><div className="notice"><b>Regra:</b> lavanderia disponível somente para períodos superiores a 7 dias.</div><Field label="Período (dias)" type="number" min="8" value={form.period_days} onChange={v=>set("period_days",v)} required/><Field label="Custo" type="number" step="0.01" value={form.cost} onChange={v=>set("cost",v)} required/></>}
+    {type==="laundry" && <><div className="notice"><b>Regra:</b> lavanderia disponível somente para períodos superiores a 7 dias. Período da OS: {requestDays} dia(s).</div><Field label="Período (dias)" type="number" min="8" value={form.period_days} onChange={v=>set("period_days",v)} required/><Field label="Custo" type="number" step="0.01" value={form.cost} onChange={v=>set("cost",v)} required/></>}
     {type==="uber" && <><Field label="Data" type="date" value={form.expense_date} onChange={v=>set("expense_date",v)}/><Field label="Valor" type="number" step="0.01" value={form.amount} onChange={v=>set("amount",v)} required/><Field label="Descrição" value={form.description} onChange={v=>set("description",v)}/></>}
     <div className="modal-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary" type="submit">Salvar serviço</button></div>
   </form></div>;
