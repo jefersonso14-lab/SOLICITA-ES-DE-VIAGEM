@@ -199,6 +199,14 @@ export async function syncTravelRequestCosts(travelRequestId) {
   return data || { inserted: 0, total: 0 };
 }
 
+export async function listTravelRequestReports() {
+  const { data, error } = await requireSupabase().from("travel_request_cost_report")
+    .select("*")
+    .order("start_date", { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
 export async function listCosts() {
   const { data, error } = await requireSupabase().from("costs")
     .select("id,travel_request_id,category,description,amount,cost_date,source,created_at,travel_request:travel_requests(os,city,state)")
