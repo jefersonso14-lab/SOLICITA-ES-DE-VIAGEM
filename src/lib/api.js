@@ -191,6 +191,14 @@ export async function listCostComposition(travelRequestId) {
   return { rows, byCategory, byCollaborator, total: rows.reduce((s,x)=>s+x.amount,0) };
 }
 
+export async function syncTravelRequestCosts(travelRequestId) {
+  const { data, error } = await requireSupabase().rpc("sync_travel_request_costs", {
+    p_travel_request_id: travelRequestId
+  });
+  if (error) throw error;
+  return data || { inserted: 0, total: 0 };
+}
+
 export async function listCosts() {
   const { data, error } = await requireSupabase().from("costs")
     .select("id,travel_request_id,category,description,amount,cost_date,source,created_at,travel_request:travel_requests(os,city,state)")
