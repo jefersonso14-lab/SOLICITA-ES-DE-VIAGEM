@@ -13,6 +13,7 @@ import {
   listCollaborators,
   listContracts,
   listTravelRequests,
+  syncTravelRequestCosts,
   signIn,
   signOut
 } from "./lib/api";
@@ -107,6 +108,7 @@ function AuthenticatedApp({ profile }) {
   const [contracts, setContracts] = useState([]);
   const [costs, setCosts] = useState([]);
   const [notice, setNotice] = useState("");
+  const [costRefreshVersion, setCostRefreshVersion] = useState(0);
 
   const title = useMemo(() => menu.find(([id]) => id === active)?.[1] || "Dashboard", [active]);
   const canManage = profile?.role === "admin" || profile?.role === "manager";
@@ -195,14 +197,14 @@ function AuthenticatedApp({ profile }) {
       {active === "dashboard" && <Dashboard requests={requests} search={search} setSearch={setSearch} onNew={() => setModal("request")} />}
       {active === "requests" && <Requests requests={requests} search={search} setSearch={setSearch} onNew={() => setModal("request")} />}
       {active === "people" && <People collaborators={collaborators} search={search} setSearch={setSearch} onNew={canManage ? () => setModal("people") : undefined} />}
-      {active === "costs" && <Costs costs={costs} requests={requests} canManage={canManage} onNew={canManage ? () => setModal("cost") : undefined} onServices={canManage ? () => setModal("services") : undefined} />}
+      {active === "costs" && <Costs costs={costs} requests={requests} canManage={canManage} refreshVersion={costRefreshVersion} onNew={canManage ? () => setModal("cost") : undefined} onServices={canManage ? () => setModal("services") : undefined} />}
       {!["dashboard", "requests", "people", "costs"].includes(active) && <Section title={title} />}
     </main>
 
     {modal === "request" && <RequestModal clients={clients} contracts={contracts} collaborators={collaborators} onClose={() => setModal(null)} onSave={handleSaveRequest} />}
     {modal === "people" && <CollaboratorModal onClose={() => setModal(null)} onSave={handleSaveCollaborator} />}
     {modal === "cost" && <CostModal requests={requests} collaborators={collaborators} onClose={() => setModal(null)} onSave={handleSaveCost} />}
-    {modal === "services" && <ServiceModal requests={requests} collaborators={collaborators} onClose={() => setModal(null)} onSave={async (type, payload) => { try { if (type === "meal-batch") { const result = await generateMealsForRequest(payload.travel_request_id); setNotice(result.created ? result.created + " refeições geradas automaticamente para a OS." : "As refeições da OS já estavam compostas."); setModal(null); return; } await saveTravelService(type, payload); setNotice("Serviço registrado. A composição da OS foi atualizada."); setModal(null); } catch (error) { setNotice(error.message || "Não foi possível registrar o serviço."); } }} />}
+    {modal === "services" && <ServiceModal requests={requests} collaborators={collaborators} onClose={() => setModal(null)} onSave={async (type, payload) => { try { if (type === "meal-batch") { const result = await generateMealsForRequest(payload.travel_request_id); setNotice(result.created ? result.created + " refeições geradas automaticamente para a OS." : "As refeições da OS já estavam compostas."); setModal(null); return; } await saveTravelService(type, payload); setNotice("Serviço registrado. A composição da OS foi atualizada."); setCostRefreshVersion(v => v + 1); await refreshCosts(); setModal(null); } catch (error) { setNotice(error.message || "Não foi possível registrar o serviço."); } }} />}
   </div>;
 }
 
@@ -246,7 +248,7 @@ function People({ collaborators, search, setSearch, onNew }) {
   </section>;
 }
 
-function Costs({ costs, requests, canManage, onNew, onServices }) {
+function Costs({ costs, requests, canManage, refreshVersion, onNew, onServices }) {
   const [selectedOs, setSelectedOs] = useState("");
   const [composition, setComposition] = useState(null);
   const [loadingComposition, setLoadingComposition] = useState(false);
@@ -255,11 +257,28 @@ function Costs({ costs, requests, canManage, onNew, onServices }) {
     if (!selectedOs && requests[0]?.id) setSelectedOs(requests[0].id);
   }, [requests, selectedOs]);
 
-  useEffect(() => {
+  async function loadComposition() {
     if (!selectedOs) { setComposition(null); return; }
     setLoadingComposition(true);
-    listCostComposition(selectedOs).then(setComposition).catch(() => setComposition(null)).finally(() => setLoadingComposition(false));
-  }, [selectedOs]);
+    try { setComposition(await listCostComposition(selectedOs)); }
+    catch { setComposition(null); }
+    finally { setLoadingComposition(false); }
+  }
+
+  useEffect(() => { loadComposition(); }, [selectedOs, refreshVersion]);
+
+  async function consolidate() {
+    if (!selectedOs || !canManage) return;
+    setLoadingComposition(true);
+    try {
+      const result = await syncTravelRequestCosts(selectedOs);
+      setComposition(await listCostComposition(selectedOs));
+      window.dispatchEvent(new CustomEvent("travel-costs-updated"));
+      alert(`Custos consolidados: ${result.inserted || 0} lançamento(s) · ${money(result.total || 0)}`);
+    } catch (error) {
+      alert(error.message || "Não foi possível consolidar os custos.");
+    } finally { setLoadingComposition(false); }
+  }
 
   const allTotal = costs.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const byCategory = costs.reduce((acc, item) => {
@@ -276,7 +295,7 @@ function Costs({ costs, requests, canManage, onNew, onServices }) {
       <Stat label="Hospedagem" value={money(byCategory.hotel || 0)} note="Categoria hotel" />
       <Stat label="Outros" value={money((byCategory.other || 0) + (byCategory.uber || 0) + (byCategory.vehicle || 0))} note="Outras categorias" />
     </div>
-    <article className="panel wide"><div className="panel-head"><div><h3>Composição automática por OS</h3><p>O total considera custos manuais e serviços estruturados da OS.</p></div><SelectField label="" value={selectedOs} onChange={setSelectedOs} options={requests.map(r => [r.id, r.os + " — " + [r.city,r.state].filter(Boolean).join("/")])} placeholder="Selecione a OS" /></div>
+    <article className="panel wide"><div className="panel-head"><div><h3>Composição automática por OS</h3><p>O total considera custos manuais e serviços estruturados da OS.</p></div><div className="cost-actions"><SelectField label="" value={selectedOs} onChange={setSelectedOs} options={requests.map(r => [r.id, r.os + " — " + [r.city,r.state].filter(Boolean).join("/")])} placeholder="Selecione a OS" />{canManage && <button className="primary" onClick={consolidate} disabled={!selectedOs || loadingComposition}>Consolidar custos da OS</button>}</div></div>
       {loadingComposition ? <p>Calculando composição...</p> : composition ? <div className="cost-composition">
         <div className="composition-total"><span>Total da OS</span><strong>{money(composition.total)}</strong></div>
         <div className="composition-grid">{Object.entries(composition.byCategory).map(([key,value]) => <div className="composition-item" key={key}><span>{({ticket:"Passagens",baggage:"Bagagem",hotel:"Hotel",vehicle:"Veículo",toll:"Pedágio",parking:"Estacionamento",other:"Outros",meal:"Refeições",laundry:"Lavanderia",uber:"Uber",fuel:"Combustível"})[key] || key}</span><b>{money(value)}</b></div>)}</div>
