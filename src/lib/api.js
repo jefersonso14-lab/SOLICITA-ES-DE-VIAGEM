@@ -209,7 +209,7 @@ export async function listTravelRequestReports() {
 
 export async function listCosts() {
   const { data, error } = await requireSupabase().from("costs")
-    .select("id,travel_request_id,category,description,amount,cost_date,source,created_at,travel_request:travel_requests(os,city,state)")
+    .select("id,travel_request_id,category,description,amount,cost_date,collaborator_id,source,created_at,travel_request:travel_requests(os,city,state)")
     .order("created_at", { ascending: false });
   if (error) throw error;
   return data || [];
