@@ -83,6 +83,51 @@ export async function listTravelRequests() {
   return data || [];
 }
 
+export async function generateMealsForRequest(travelRequestId) {
+  const client = requireSupabase();
+  const { data: request, error: requestError } = await client.from("travel_requests")
+    .select("id,start_date,end_date,state");
+  if (requestError) throw requestError;
+  const target = (request || []).find(x => x.id === travelRequestId);
+  if (!target) throw new Error("OS não encontrada.");
+  const { data: links, error: linksError } = await client.from("travel_request_collaborators")
+    .select("collaborator:collaborators(id,name,uf)")
+    .eq("travel_request_id", travelRequestId);
+  if (linksError) throw linksError;
+  const collaborators = (links || []).map(x => x.collaborator).filter(Boolean);
+  if (!collaborators.length) throw new Error("A OS não possui colaboradores vinculados.");
+
+  const { data: existing, error: existingError } = await client.from("meals")
+    .select("collaborator_id,meal_date,meal_type")
+    .eq("travel_request_id", travelRequestId);
+  if (existingError) throw existingError;
+  const existingKeys = new Set((existing || []).map(x => `${x.collaborator_id}|${x.meal_date}|${x.meal_type}`));
+
+  const start = new Date(target.start_date + "T00:00:00");
+  const end = new Date(target.end_date + "T00:00:00");
+  const rows = [];
+  for (const collaborator of collaborators) {
+    const uf = collaborator.uf || target.state || "";
+    for (let cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
+      const date = cursor.toISOString().slice(0,10);
+      for (const meal_type of ["breakfast","lunch","dinner"]) {
+        const key = `${collaborator.id}|${date}|${meal_type}`;
+        if (existingKeys.has(key)) continue;
+        let unit_cost = 0;
+        if (meal_type === "breakfast") unit_cost = 15;
+        if (meal_type === "lunch" && uf === "SP") unit_cost = 32;
+        if (meal_type === "lunch" && uf === "RJ") unit_cost = 35;
+        if (meal_type === "dinner" && (uf === "SP" || uf === "RJ")) unit_cost = 35;
+        rows.push({travel_request_id:travelRequestId,collaborator_id:collaborator.id,meal_date:date,meal_type,uf,unit_cost,quantity:1});
+      }
+    }
+  }
+  if (!rows.length) return { created: 0, skipped: existing?.length || 0 };
+  const { data, error } = await client.from("meals").insert(rows).select("id");
+  if (error) throw error;
+  return { created: data?.length || rows.length, skipped: existing?.length || 0 };
+}
+
 export async function listTravelRequestCollaborators(travelRequestId) {
   const { data, error } = await requireSupabase().from("travel_request_collaborators")
     .select("collaborator:collaborators(id,name,cpf)")
