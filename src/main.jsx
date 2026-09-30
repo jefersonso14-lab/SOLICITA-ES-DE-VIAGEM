@@ -14,6 +14,7 @@ import {
   listContracts,
   listTravelRequests,
   syncTravelRequestCosts,
+  listTravelRequestReports,
   signIn,
   signOut
 } from "./lib/api";
@@ -109,6 +110,7 @@ function AuthenticatedApp({ profile }) {
   const [costs, setCosts] = useState([]);
   const [notice, setNotice] = useState("");
   const [costRefreshVersion, setCostRefreshVersion] = useState(0);
+  const [reports, setReports] = useState([]);
 
   const title = useMemo(() => menu.find(([id]) => id === active)?.[1] || "Dashboard", [active]);
   const canManage = profile?.role === "admin" || profile?.role === "manager";
@@ -124,6 +126,11 @@ function AuthenticatedApp({ profile }) {
       if (result.error) throw result.error;
       setCollaborators(result.data || []);
     } catch (error) { setNotice(error.message || "Erro ao consultar colaboradores."); }
+  }
+
+  async function refreshReports() {
+    try { setReports(await listTravelRequestReports()); }
+    catch (error) { setNotice(error.message || "Erro ao consultar relatórios."); }
   }
 
   async function refreshCosts() {
@@ -142,7 +149,7 @@ function AuthenticatedApp({ profile }) {
   }
 
   useEffect(() => {
-    refreshRequests(); refreshCollaborators(); refreshCatalogs(); refreshCosts();
+    refreshRequests(); refreshCollaborators(); refreshCatalogs(); refreshCosts(); refreshReports();
   }, []);
 
   async function handleSaveRequest(form) {
@@ -160,6 +167,7 @@ function AuthenticatedApp({ profile }) {
       setNotice("Custo lançado com sucesso.");
       setModal(null);
       await refreshCosts();
+      await refreshReports();
     } catch (error) { setNotice(error.message || "Não foi possível lançar o custo."); }
   }
 
@@ -194,11 +202,12 @@ function AuthenticatedApp({ profile }) {
       </header>
 
       {notice && <div className="global-notice"><span>{notice}</span><button onClick={() => setNotice("")}>×</button></div>}
-      {active === "dashboard" && <Dashboard requests={requests} search={search} setSearch={setSearch} onNew={() => setModal("request")} />}
+      {active === "dashboard" && <Dashboard requests={requests} costs={costs} search={search} setSearch={setSearch} onNew={() => setModal("request")} />}
       {active === "requests" && <Requests requests={requests} search={search} setSearch={setSearch} onNew={() => setModal("request")} />}
       {active === "people" && <People collaborators={collaborators} search={search} setSearch={setSearch} onNew={canManage ? () => setModal("people") : undefined} />}
       {active === "costs" && <Costs costs={costs} requests={requests} collaborators={collaborators} canManage={canManage} refreshVersion={costRefreshVersion} onCostsUpdated={refreshCosts} onNew={canManage ? () => setModal("cost") : undefined} onServices={canManage ? () => setModal("services") : undefined} />}
-      {!["dashboard", "requests", "people", "costs"].includes(active) && <Section title={title} />}
+      {active === "reports" && <Reports reports={reports} costs={costs} collaborators={collaborators} clients={clients} contracts={contracts} />}
+      {!["dashboard", "requests", "people", "costs", "reports"].includes(active) && <Section title={title} />}
     </main>
 
     {modal === "request" && <RequestModal clients={clients} contracts={contracts} collaborators={collaborators} onClose={() => setModal(null)} onSave={handleSaveRequest} />}
@@ -208,7 +217,7 @@ function AuthenticatedApp({ profile }) {
   </div>;
 }
 
-function Dashboard({ requests, search, setSearch, onNew }) {
+function Dashboard({ requests, costs, search, setSearch, onNew }) {
   const current = requests.filter((r) => !["completed", "cancelled"].includes(r.status));
   const inProgress = requests.filter((r) => r.status === "in_progress");
   const pending = requests.filter((r) => ["draft", "submitted"].includes(r.status));
@@ -218,7 +227,7 @@ function Dashboard({ requests, search, setSearch, onNew }) {
       <Stat label="OS abertas" value={current.length} note="Em acompanhamento" />
       <Stat label="Em andamento" value={inProgress.length} note="Viagens ativas" />
       <Stat label="Pendentes" value={pending.length} note="Aguardando ação" />
-      <Stat label="Custo acumulado" value="—" note="Integração de custos na próxima etapa" />
+      <Stat label="Custo acumulado" value={money(costs.reduce((sum, item) => sum + Number(item.amount || 0), 0))} note={costs.length + " lançamento(s)"} />
     </div>
     <RequestsTable requests={requests} search={search} setSearch={setSearch} />
   </section>;
@@ -372,6 +381,56 @@ function CostModal({ requests, collaborators, onClose, onSave }) {
     <div className="form-section"><Field label="Descrição" value={form.description} onChange={v => set("description", v)} /></div>
     <div className="modal-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary" disabled={busy}>{busy ? "Salvando..." : "Salvar custo"}</button></div>
   </form></ModalShell>;
+}
+
+function Reports({ reports, costs, collaborators, clients, contracts }) {
+  const [filters, setFilters] = useState({ start: "", end: "", client: "", contract: "", os: "", collaborator: "" });
+  const setFilter = (key, value) => setFilters(current => ({ ...current, [key]: value }));
+  const filtered = useMemo(() => reports.filter(r => {
+    const inStart = !filters.start || r.end_date >= filters.start;
+    const inEnd = !filters.end || r.start_date <= filters.end;
+    const inClient = !filters.client || r.client_id === filters.client;
+    const inContract = !filters.contract || r.contract_id === filters.contract;
+    const inOs = !filters.os || String(r.os || "").toLowerCase().includes(filters.os.toLowerCase());
+    const requestCosts = costs.filter(c => c.travel_request_id === r.travel_request_id);
+    const inCollaborator = !filters.collaborator || requestCosts.some(c => c.collaborator_id === filters.collaborator);
+    return inStart && inEnd && inClient && inContract && inOs && inCollaborator;
+  }), [reports, costs, filters]);
+  const total = filtered.reduce((sum, r) => sum + Number(r.total_cost || 0), 0);
+  const filteredIds = new Set(filtered.map(r => r.travel_request_id));
+  const categoryTotals = costs.filter(c => filteredIds.has(c.travel_request_id)).reduce((acc, c) => {
+    acc[c.category] = (acc[c.category] || 0) + Number(c.amount || 0); return acc;
+  }, {});
+  const collaboratorTotals = costs.filter(c => filteredIds.has(c.travel_request_id) && c.collaborator_id).reduce((acc, c) => {
+    acc[c.collaborator_id] = (acc[c.collaborator_id] || 0) + Number(c.amount || 0); return acc;
+  }, {});
+  const labels = { ticket:"Passagens", baggage:"Bagagem", hotel:"Hotel", vehicle:"Veículo", toll:"Pedágio", parking:"Estacionamento", fuel:"Combustível", meal:"Refeições", laundry:"Lavanderia", uber:"Uber", other:"Outros" };
+  function exportXlsx() {
+    const rows = filtered.map(r => ({ OS:r.os, Cliente:r.client_name || "—", Contrato:[r.contract_code,r.contract_name].filter(Boolean).join(" — ") || "—", Estado:r.state || "—", Cidade:r.city || "—", Gestor:r.manager_name || "—", Inicio:r.start_date || "", Fim:r.end_date || "", Dias:r.days || 0, Status:statusMap[r.status]?.[0] || r.status || "—", "Custo total":Number(r.total_cost || 0), "Itens de custo":r.cost_items || 0 }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Relatório");
+    XLSX.writeFile(wb, "relatorio-custos-viagens.xlsx");
+  }
+  return <section className="content">
+    <div className="welcome"><div><h2>Relatórios</h2><p>Consulta consolidada por período, cliente, contrato, OS e colaborador.</p></div><div className="report-actions"><button className="secondary" onClick={() => setFilters({start:"",end:"",client:"",contract:"",os:"",collaborator:""})}>Limpar filtros</button><button className="primary" onClick={exportXlsx} disabled={!filtered.length}>Exportar XLSX</button></div></div>
+    <article className="panel wide"><div className="report-filters">
+      <Field label="Período inicial" type="date" value={filters.start} onChange={v => setFilter("start",v)} />
+      <Field label="Período final" type="date" value={filters.end} onChange={v => setFilter("end",v)} />
+      <SelectField label="Cliente" value={filters.client} onChange={v => setFilter("client",v)} options={clients.map(c => [c.id,c.name])} placeholder="Todos" />
+      <SelectField label="Contrato" value={filters.contract} onChange={v => setFilter("contract",v)} options={contracts.filter(c => !filters.client || c.client_id === filters.client).map(c => [c.id,c.code ? c.code + " — " + c.name : c.name])} placeholder="Todos" />
+      <Field label="OS" value={filters.os} onChange={v => setFilter("os",v)} />
+      <SelectField label="Colaborador" value={filters.collaborator} onChange={v => setFilter("collaborator",v)} options={collaborators.map(c => [c.id,c.name])} placeholder="Todos" />
+    </div></article>
+    <div className="stats"><Stat label="Custo total" value={money(total)} note={filtered.length + " OS"} /><Stat label="Quantidade de OS" value={filtered.length} note="Resultado filtrado" /><Stat label="Média por OS" value={money(filtered.length ? total / filtered.length : 0)} note="Custo médio" /><Stat label="Itens de custo" value={filtered.reduce((sum,r) => sum + Number(r.cost_items || 0),0)} note="Lançamentos consolidados" /></div>
+    <article className="panel wide"><div className="panel-head"><div><h3>Resumo por OS</h3><p>{filtered.length} registro(s)</p></div></div><div className="table-wrap"><table><thead><tr><th>OS</th><th>Cliente</th><th>Destino</th><th>Período</th><th>Status</th><th>Custo</th></tr></thead><tbody>
+      {filtered.length ? filtered.map(r => <tr key={r.travel_request_id}><td><b>{r.os}</b></td><td>{r.client_name || "—"}</td><td>{[r.city,r.state].filter(Boolean).join(" - ") || "—"}</td><td>{formatDate(r.start_date)} — {formatDate(r.end_date)}</td><td>{statusMap[r.status]?.[0] || r.status || "—"}</td><td><b>{money(r.total_cost)}</b></td></tr>) : <tr><td colSpan="6" className="table-empty">Nenhum relatório encontrado.</td></tr>}
+    </tbody></table></div></article>
+    <div className="report-columns">
+      <article className="panel"><div className="panel-head"><div><h3>Custos por categoria</h3><p>Resultado filtrado.</p></div></div><div className="report-list">{Object.entries(categoryTotals).sort((a,b)=>b[1]-a[1]).map(([key,value])=><div className="report-row" key={key}><span>{labels[key] || key}</span><b>{money(value)}</b></div>)}{!Object.keys(categoryTotals).length && <p>Nenhum custo.</p>}</div></article>
+      <article className="panel"><div className="panel-head"><div><h3>Custo por colaborador</h3><p>Valores vinculados aos lançamentos.</p></div></div><div className="report-list">{Object.entries(collaboratorTotals).sort((a,b)=>b[1]-a[1]).map(([id,value])=><div className="report-row" key={id}><span>{collaborators.find(c=>c.id===id)?.name || "Não identificado"}</span><b>{money(value)}</b></div>)}{!Object.keys(collaboratorTotals).length && <p>Nenhum custo vinculado a colaborador.</p>}</div></article>
+    </div>
+  </section>;
 }
 
 function Section({ title }) {
