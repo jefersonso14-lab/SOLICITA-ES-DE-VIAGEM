@@ -293,6 +293,11 @@ function ServiceModal({ requests, collaborators, onClose, onSave }) {
   const [type,setType]=useState("ticket");
   const [form,setForm]=useState({travel_request_id:requests[0]?.id||"", collaborator_id:"", cost:"", description:"", baggage_included:false, baggage_quantity:0, provider:"", check_in:"", check_out:"", rental_cost:"", toll_cost:"", parking_cost:"", other_cost:"", required:true, conductor_name:"", meal_date:"", meal_type:"lunch", uf:"SP", unit_cost:"", quantity:1, period_days:"", amount:"", expense_date:""});
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
+  useEffect(() => {
+    if (type !== "meal") return;
+    const defaults = { breakfast: 15, lunch: form.uf === "SP" ? 32 : form.uf === "RJ" ? 35 : 0, dinner: form.uf === "SP" || form.uf === "RJ" ? 35 : 0 };
+    setForm(f => ({ ...f, unit_cost: String(defaults[f.meal_type] || f.unit_cost || "") }));
+  }, [type, form.meal_type, form.uf]);
   const submit=e=>{e.preventDefault(); const p={travel_request_id:form.travel_request_id}; if(form.collaborator_id)p.collaborator_id=form.collaborator_id;
     if(type==="ticket") Object.assign(p,{cost:Number(form.cost||0),description:form.description||null,baggage_included:form.baggage_included,baggage_quantity:Number(form.baggage_quantity||0)});
     if(type==="accommodation") Object.assign(p,{cost:Number(form.cost||0),provider:form.provider||null,check_in:form.check_in||null,check_out:form.check_out||null});
