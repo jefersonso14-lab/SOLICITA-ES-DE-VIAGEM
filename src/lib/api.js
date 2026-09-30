@@ -83,6 +83,26 @@ export async function listTravelRequests() {
   return data || [];
 }
 
+export async function saveTravelService(type, payload) {
+  const client = requireSupabase();
+  const tables = { ticket:"tickets", accommodation:"accommodations", vehicle:"vehicles", meal:"meals", laundry:"laundry", uber:"uber_expenses" };
+  const table = tables[type];
+  if (!table) throw new Error("Tipo de serviço inválido.");
+  const { data, error } = await client.from(table).insert(payload).select("*").single();
+  if (error) throw error;
+  return data;
+}
+
+export async function listTravelServices(type, travelRequestId) {
+  const client = requireSupabase();
+  const tables = { ticket:"tickets", accommodation:"accommodations", vehicle:"vehicles", meal:"meals", laundry:"laundry", uber:"uber_expenses" };
+  const table = tables[type];
+  if (!table) throw new Error("Tipo de serviço inválido.");
+  const { data, error } = await client.from(table).select("*").eq("travel_request_id", travelRequestId).order("created_at", { ascending:false });
+  if (error) throw error;
+  return data || [];
+}
+
 export async function listCostComposition(travelRequestId) {
   const client = requireSupabase();
   const [costs, tickets, hotels, vehicles, meals, laundry, uber] = await Promise.all([
