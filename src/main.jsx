@@ -303,7 +303,11 @@ function ServiceModal({ requests, collaborators, onClose, onSave }) {
     if(type==="accommodation") Object.assign(p,{cost:Number(form.cost||0),provider:form.provider||null,check_in:form.check_in||null,check_out:form.check_out||null});
     if(type==="vehicle") Object.assign(p,{required:form.required,conductor_name:form.conductor_name||null,rental_cost:Number(form.rental_cost||0),toll_cost:Number(form.toll_cost||0),parking_cost:Number(form.parking_cost||0),other_cost:Number(form.other_cost||0)});
     if(type==="meal") Object.assign(p,{meal_date:form.meal_date||null,meal_type:form.meal_type,uf:form.uf,unit_cost:Number(form.unit_cost||0),quantity:Number(form.quantity||1)});
-    if(type==="laundry") Object.assign(p,{period_days:Number(form.period_days||0),cost:Number(form.cost||0)});
+    if(type==="laundry") {
+      const days = Number(form.period_days || 0);
+      if (days <= 7) { setForm(f => ({...f, period_days: ""})); return; }
+      Object.assign(p,{period_days:days,cost:Number(form.cost||0)});
+    }
     if(type==="uber") Object.assign(p,{expense_date:form.expense_date||null,amount:Number(form.amount||0),description:form.description||null});
     onSave(type,p);
   };
@@ -316,7 +320,7 @@ function ServiceModal({ requests, collaborators, onClose, onSave }) {
     {type==="accommodation" && <><Field label="Fornecedor" value={form.provider} onChange={v=>set("provider",v)}/><Field label="Check-in" type="date" value={form.check_in} onChange={v=>set("check_in",v)}/><Field label="Check-out" type="date" value={form.check_out} onChange={v=>set("check_out",v)}/><Field label="Custo" type="number" step="0.01" value={form.cost} onChange={v=>set("cost",v)} required /></>}
     {type==="vehicle" && <><label className="check"><input type="checkbox" checked={form.required} onChange={e=>set("required",e.target.checked)}/> Veículo necessário</label>{form.required&&<><Field label="Condutor" value={form.conductor_name} onChange={v=>set("conductor_name",v)}/><Field label="Locação" type="number" step="0.01" value={form.rental_cost} onChange={v=>set("rental_cost",v)}/><Field label="Pedágio" type="number" step="0.01" value={form.toll_cost} onChange={v=>set("toll_cost",v)}/><Field label="Estacionamento" type="number" step="0.01" value={form.parking_cost} onChange={v=>set("parking_cost",v)}/><Field label="Outros" type="number" step="0.01" value={form.other_cost} onChange={v=>set("other_cost",v)}/></>}</>}
     {type==="meal" && <><Field label="Data" type="date" value={form.meal_date} onChange={v=>set("meal_date",v)}/><SelectField label="Refeição" value={form.meal_type} onChange={v=>set("meal_type",v)} options={[["breakfast","Café da manhã"],["lunch","Almoço"],["dinner","Jantar"]]} /><SelectField label="UF" value={form.uf} onChange={v=>set("uf",v)} options={["SP","RJ","MG","PR","SC","RS","BA","PE","CE","AM","PA","GO","DF"].map(x=>[x,x])}/><Field label="Valor unitário" type="number" step="0.01" value={form.unit_cost} onChange={v=>set("unit_cost",v)} required/><Field label="Quantidade" type="number" value={form.quantity} onChange={v=>set("quantity",v)} /></>}
-    {type==="laundry" && <><Field label="Período (dias)" type="number" value={form.period_days} onChange={v=>set("period_days",v)} required/><Field label="Custo" type="number" step="0.01" value={form.cost} onChange={v=>set("cost",v)} required/></>}
+    {type==="laundry" && <><div className="notice"><b>Regra:</b> lavanderia disponível somente para períodos superiores a 7 dias.</div><Field label="Período (dias)" type="number" min="8" value={form.period_days} onChange={v=>set("period_days",v)} required/><Field label="Custo" type="number" step="0.01" value={form.cost} onChange={v=>set("cost",v)} required/></>}
     {type==="uber" && <><Field label="Data" type="date" value={form.expense_date} onChange={v=>set("expense_date",v)}/><Field label="Valor" type="number" step="0.01" value={form.amount} onChange={v=>set("amount",v)} required/><Field label="Descrição" value={form.description} onChange={v=>set("description",v)}/></>}
     <div className="modal-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary" type="submit">Salvar serviço</button></div>
   </form></div>;
