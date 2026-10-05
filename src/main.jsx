@@ -16,6 +16,9 @@ import {
   listTravelRequests,
   syncTravelRequestCosts,
   listTravelRequestReports,
+  listAttachments,
+  uploadAttachment,
+  downloadAttachment,
   signIn,
   signOut
 } from "./lib/api";
@@ -112,6 +115,7 @@ function AuthenticatedApp({ profile }) {
   const [notice, setNotice] = useState("");
   const [costRefreshVersion, setCostRefreshVersion] = useState(0);
   const [reports, setReports] = useState([]);
+  const [attachments, setAttachments] = useState([]);
 
   const title = useMemo(() => menu.find(([id]) => id === active)?.[1] || "Dashboard", [active]);
   const canManage = profile?.role === "admin" || profile?.role === "manager";
@@ -127,6 +131,11 @@ function AuthenticatedApp({ profile }) {
       if (result.error) throw result.error;
       setCollaborators(result.data || []);
     } catch (error) { setNotice(error.message || "Erro ao consultar colaboradores."); }
+  }
+
+  async function refreshAttachments() {
+    try { setAttachments(await listAttachments()); }
+    catch (error) { setNotice(error.message || "Erro ao consultar anexos."); }
   }
 
   async function refreshReports() {
@@ -150,7 +159,7 @@ function AuthenticatedApp({ profile }) {
   }
 
   useEffect(() => {
-    refreshRequests(); refreshCollaborators(); refreshCatalogs(); refreshCosts(); refreshReports();
+    refreshRequests(); refreshCollaborators(); refreshCatalogs(); refreshCosts(); refreshReports(); refreshAttachments();
   }, []);
 
   async function handleSaveRequest(form) {
@@ -208,6 +217,7 @@ function AuthenticatedApp({ profile }) {
       {active === "people" && <People collaborators={collaborators} search={search} setSearch={setSearch} onNew={canManage ? () => setModal("people") : undefined} />}
       {active === "costs" && <Costs costs={costs} requests={requests} collaborators={collaborators} canManage={canManage} refreshVersion={costRefreshVersion} onCostsUpdated={refreshCosts} onNew={canManage ? () => setModal("cost") : undefined} onServices={canManage ? () => setModal("services") : undefined} />}
       {active === "reports" && <Reports reports={reports} costs={costs} collaborators={collaborators} clients={clients} contracts={contracts} />}
+      {active === "files" && <Attachments attachments={attachments} requests={requests} canManage={canManage} onUploaded={refreshAttachments} />}
       {!["dashboard", "requests", "people", "costs", "reports"].includes(active) && <Section title={title} />}
     </main>
 
@@ -434,6 +444,46 @@ function Reports({ reports, costs, collaborators, clients, contracts }) {
   </section>;
 }
 
+function Attachments({ attachments, requests, canManage, onUploaded }) {
+  const [os, setOs] = useState("");
+  const [file, setFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const visible = os ? attachments.filter(a => a.travel_request_id === os) : attachments;
+  async function submit(event) {
+    event.preventDefault();
+    if (!os || !file) return;
+    setBusy(true);
+    try {
+      await uploadAttachment({ travelRequestId: os, file });
+      setFile(null);
+      event.target.reset();
+      await onUploaded();
+    } catch (error) { alert(error.message || "Não foi possível enviar o anexo."); }
+    finally { setBusy(false); }
+  }
+  async function openFile(item) {
+    try {
+      const blob = await downloadAttachment(item.storage_path);
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener,noreferrer");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (error) { alert(error.message || "Não foi possível abrir o arquivo."); }
+  }
+  return <section className="content">
+    <div className="welcome"><div><h2>Anexos</h2><p>Documentos vinculados às OS com armazenamento privado.</p></div></div>
+    {canManage && <article className="panel wide"><form onSubmit={submit} className="attachment-upload">
+      <SelectField label="OS" value={os} onChange={setOs} options={requests.map(r => [r.id, r.os + " — " + ([r.city,r.state].filter(Boolean).join(" / ") || "Sem destino")])} placeholder="Selecione a OS" />
+      <Field label="Arquivo" type="file" onChange={v => setFile(v?.[0] || null)} />
+      <button className="primary" disabled={busy || !os || !file}>{busy ? "Enviando..." : "Enviar arquivo"}</button>
+    </form><small className="helper">PDF, JPG, PNG, CSV, XLS e XLSX · limite de 15 MB.</small></article>}
+    <article className="panel wide"><div className="panel-head"><div><h3>Arquivos armazenados</h3><p>{visible.length} arquivo(s)</p></div></div>
+      <div className="table-wrap"><table><thead><tr><th>Arquivo</th><th>OS</th><th>Tipo</th><th>Status</th><th>Data</th><th></th></tr></thead><tbody>
+        {visible.length ? visible.map(item => <tr key={item.id}><td><b>{item.file_name}</b></td><td>{requests.find(r=>r.id===item.travel_request_id)?.os || "—"}</td><td>{item.mime_type || "—"}</td><td>{item.extraction_status || "pending"}</td><td>{formatDateTime(item.created_at)}</td><td><button className="secondary small" onClick={() => openFile(item)}>Abrir</button></td></tr>) : <tr><td colSpan="6" className="table-empty">Nenhum anexo encontrado.</td></tr>}
+      </tbody></table></div>
+    </article>
+  </section>;
+}
+
 function Section({ title }) {
   return <section className="content"><div className="welcome"><div><h2>{title}</h2><p>Módulo preparado para integração com os dados da plataforma.</p></div></div><article className="panel empty"><div className="empty-icon">□</div><h3>Próxima etapa</h3><p>Este módulo será conectado às tabelas e permissões do Supabase.</p></article></section>;
 }
@@ -508,6 +558,7 @@ function SelectField({ label, value, onChange, options, placeholder }) {
 
 function Stat({ label, value, note }) { return <article className="stat"><span>{label}</span><strong>{value}</strong><small>{note}</small></article>; }
 function initials(name) { return (name || "US").split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase(); }
+function formatDateTime(value) { if (!value) return "—"; return new Date(value).toLocaleString("pt-BR"); }
 function formatDate(value) { if (!value) return "—"; const [year, month, day] = value.split("-"); return year && month && day ? `${day}/${month}/${year}` : value; }
 function money(value) { return Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
 
