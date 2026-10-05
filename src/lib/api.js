@@ -265,3 +265,56 @@ export async function createTravelRequest(payload) {
 
   return data;
 }
+
+
+export async function listAttachments(travelRequestId) {
+  const client = requireSupabase();
+  let query = client.from("attachments").select("*").order("created_at", { ascending: false });
+  if (travelRequestId) query = query.eq("travel_request_id", travelRequestId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+}
+
+export async function uploadAttachment({ travelRequestId, file, description = "" }) {
+  const client = requireSupabase();
+  const user = await getCurrentUser();
+  if (!user) throw new Error("Usuário não autenticado.");
+  if (!travelRequestId) throw new Error("Selecione uma OS.");
+  if (!file) throw new Error("Selecione um arquivo.");
+  const allowed = [
+    "application/pdf",
+    "image/jpeg",
+    "image/png",
+    "text/csv",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  ];
+  if (!allowed.includes(file.type)) throw new Error("Formato não suportado. Use PDF, JPG, PNG, CSV, XLS ou XLSX.");
+  const maxSize = 15 * 1024 * 1024;
+  if (file.size > maxSize) throw new Error("O arquivo excede o limite de 15 MB.");
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const path = user.id + "/" + travelRequestId + "/" + crypto.randomUUID() + "-" + safeName;
+  const { error: uploadError } = await client.storage.from("travel-documents").upload(path, file, { upsert: false });
+  if (uploadError) throw uploadError;
+  const { data, error } = await client.from("attachments").insert({
+    travel_request_id: travelRequestId,
+    file_name: file.name,
+    storage_path: path,
+    mime_type: file.type || null,
+    file_size: file.size,
+    extraction_status: "pending",
+    extracted_data: { description }
+  }).select("*").single();
+  if (error) {
+    await client.storage.from("travel-documents").remove([path]);
+    throw error;
+  }
+  return data;
+}
+
+export async function downloadAttachment(path) {
+  const { data, error } = await requireSupabase().storage.from("travel-documents").download(path);
+  if (error) throw error;
+  return data;
+}
