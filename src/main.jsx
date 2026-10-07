@@ -196,17 +196,18 @@ function AuthenticatedApp({ profile }) {
   }
 
   return <div className="app">
+    <a className="skip-link" href="#main-content">Pular para o conteúdo</a>
     <aside className="sidebar">
       <div className="brand"><div className="brand-mark">B</div><div><strong>PLATAFORMA</strong><span>Solicitação de Viagens</span></div></div>
       <nav aria-label="Navegação principal">
-        {menu.map(([id, label], i) => <button key={id} className={active === id ? "nav-item active" : "nav-item"} onClick={() => setActive(id)}>
+        {menu.map(([id, label], i) => <button key={id} aria-current={active === id ? "page" : undefined} className={active === id ? "nav-item active" : "nav-item"} onClick={() => setActive(id)}>
           <span className="nav-icon" aria-hidden="true">{["⌂", "▣", "♙", "R$", "▤", "□", "▧", "◷"][i]}</span>{label}
         </button>)}
       </nav>
       <div className="sidebar-footer"><span className="status-dot">●</span> Sistema operacional</div>
     </aside>
 
-    <main className="main">
+    <main className="main" id="main-content" tabIndex="-1">
       <header className="topbar">
         <div><div className="eyebrow">PLATAFORMA DE SOLICITAÇÃO DE VIAGENS</div><h1>{title}</h1></div>
         <div className="top-actions">
@@ -216,7 +217,7 @@ function AuthenticatedApp({ profile }) {
         </div>
       </header>
 
-      {notice && <div className="global-notice"><span>{notice}</span><button onClick={() => setNotice("")}>×</button></div>}
+      {notice && <div className="global-notice" role="status" aria-live="polite"><span>{notice}</span><button aria-label="Fechar aviso" onClick={() => setNotice("")}>×</button></div>}
       {active === "dashboard" && <Dashboard requests={requests} costs={costs} search={search} setSearch={setSearch} onNew={() => setModal("request")} />}
       {active === "requests" && <Requests requests={requests} search={search} setSearch={setSearch} onNew={() => setModal("request")} />}
       {active === "people" && <People collaborators={collaborators} search={search} setSearch={setSearch} onNew={canManage ? () => setModal("people") : undefined} />}
@@ -563,7 +564,7 @@ function Dossier({ requests }) {
     ["Uber", dossier?.uber || [], item => item.description || "Uber"]
   ];
   return <section className="content"><div className="welcome"><div><h2>Dossiê da OS</h2><p>Solicitação, pessoas, serviços, documentos, custos e total consolidado.</p></div><div className="cost-actions"><SelectField label="OS" value={requestId} onChange={setRequestId} options={requests.map(item => [item.id, item.os + " — " + [item.city,item.state].filter(Boolean).join("/")])} placeholder="Selecione a OS" /></div></div>
-    {busy && <article className="panel">Carregando dossiê...</article>}
+    {busy && <article className="panel" role="status" aria-live="polite">Carregando dossiê...</article>}
     {request && !busy && <><div className="stats"><Stat label="OS" value={request.os} note={statusMap[request.status]?.[0] || request.status} /><Stat label="Destino" value={[request.city,request.state].filter(Boolean).join(" / ") || "—"} note={`${formatDate(request.start_date)} — ${formatDate(request.end_date)}`} /><Stat label="Colaboradores" value={dossier.collaborators.length} note="Vinculados à solicitação" /><Stat label="Total consolidado" value={money(dossier.total)} note={`${dossier.costs.length} custo(s) confirmados`} /></div>
       <article className="panel wide"><div className="panel-head"><div><h3>Solicitação e equipe</h3><p>{request.client?.name || "Cliente não informado"} · {[request.contract?.code,request.contract?.name].filter(Boolean).join(" — ") || "Sem contrato"}</p></div></div><div className="dossier-people">{dossier.collaborators.length ? dossier.collaborators.map(person => <span className="badge info" key={person.id}>{person.name}{person.cpf ? ` · ${person.cpf}` : ""}</span>) : <span>Nenhum colaborador vinculado.</span>}</div></article>
       <div className="report-columns">{serviceGroups.map(([label, items, description]) => <article className="panel" key={label}><div className="panel-head"><div><h3>{label}</h3><p>{items.length} registro(s)</p></div></div>{items.map((item,index) => <div className="report-row" key={item.id || index}><span>{description(item)}</span><b>{money(item.amount ?? item.cost ?? item.rental_cost ?? item.unit_cost ?? 0)}</b></div>)}{!items.length && <p>Sem registros.</p>}</article>)}</div>
@@ -635,7 +636,7 @@ function CollaboratorModal({ onClose, onSave }) {
 }
 
 function ModalShell({ title, onClose, children }) {
-  return <div className="overlay"><div className="modal" role="dialog" aria-modal="true"><div className="modal-head"><div><span className="eyebrow">CADASTRO</span><h2>{title}</h2></div><button className="close" onClick={onClose} aria-label="Fechar">×</button></div>{children}</div></div>;
+  return <div className="overlay"><div className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className="modal-head"><div><span className="eyebrow">CADASTRO</span><h2 id="modal-title">{title}</h2></div><button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button></div>{children}</div></div>;
 }
 
 function Field({ label, value = "", onChange, type = "text", required = false, disabled = false, maxLength, accept, min, step }) {

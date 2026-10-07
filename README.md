@@ -33,7 +33,10 @@ O Dossiê da OS agrega solicitação, colaboradores, passagens, hospedagem, veí
 1. Aplique `supabase/migrations/20261006180030_attachments_ocr_validation_dossier.sql` no projeto Supabase.
 2. Confirme que o bucket `travel-attachments` aparece como **privado** e limitado a 15 MB.
 3. Configure apenas `VITE_SUPABASE_URL` e `VITE_SUPABASE_PUBLISHABLE_KEY` no ambiente web. Nunca use chave `service_role` ou chave secreta no navegador.
-4. As dependências estão fixadas no `pnpm-lock.yaml`; instale com `pnpm install`, execute os testes com `pnpm test` e inicie com `pnpm dev`.
+4. As dependências estão fixadas no `pnpm-lock.yaml`; instale com `pnpm install --ignore-scripts`, execute os testes com `pnpm test` e inicie com `pnpm dev`.
 
 ## Documentação
 Consulte a pasta `docs/`.
+
+## Qualidade contínua
+O GitHub Actions instala com lockfile congelado e executa `pnpm test` e `pnpm run build` em pushes para `main` e pull requests. A interface inclui link para pular a navegação, estados anunciados por leitor de tela e diálogo com nome acessível.

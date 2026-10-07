@@ -19,3 +19,5 @@
 .extraction-review{border-top:3px solid var(--red,#b5121b)}
 .dossier-people{display:flex;gap:8px;flex-wrap:wrap;padding:8px 0}
 .dossier-people .badge{width:max-content}
+.skip-link{position:fixed;z-index:1000;top:8px;left:8px;transform:translateY(-150%);background:#fff;color:#111;padding:10px 14px;border:2px solid var(--red);border-radius:6px;font-weight:700}.skip-link:focus{transform:translateY(0)}
+.main:focus{outline:none}
