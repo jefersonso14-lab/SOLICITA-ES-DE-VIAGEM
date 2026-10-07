@@ -314,7 +314,7 @@ export async function listAuditLogs({ travelRequestId, limit = 250 } = {}) {
   const client = requireSupabase();
   const safeLimit = Math.min(Math.max(Number(limit) || 250, 1), 500);
   let query = client.from("audit_logs")
-    .select("id,user_id,travel_request_id,entity_type,entity_id,action,old_data,new_data,created_at")
+    .select("id,user_id,travel_request_id,entity_type,entity_id,action,changed_fields,created_at")
     .order("created_at", { ascending: false })
     .limit(safeLimit);
   if (travelRequestId) query = query.eq("travel_request_id", travelRequestId);

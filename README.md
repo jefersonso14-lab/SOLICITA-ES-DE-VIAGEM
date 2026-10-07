@@ -29,13 +29,14 @@ Campos extraídos são sugestões editáveis. Só a ação **Confirmar e lançar
 
 O Dossiê da OS agrega solicitação, colaboradores, passagens, hospedagem, veículos, refeições, lavanderia, Uber, custos, anexos, validações e resumo por categoria. A consolidação e os relatórios continuam usando a tabela de custos existente.
 
-O módulo **Histórico e auditoria** registra alterações no banco e permite filtrar eventos por OS, entidade, ação e período. Solicitantes veem apenas suas OS; gestores e administradores veem o histórico global. Snapshots excluem identificadores pessoais, texto OCR e caminhos privados dos arquivos.
+O módulo **Histórico e auditoria** registra alterações no banco e permite filtrar eventos por OS, entidade, ação e período. Solicitantes veem apenas suas OS; gestores e administradores veem o histórico global. Os snapshots sanitizados ficam no schema privado `private`; a API expõe apenas os nomes dos campos alterados.
 
 ### Implantação Supabase
 1. Aplique as migrações deste repositório em ordem cronológica, em um projeto que já contenha o esquema base da plataforma.
 2. Confirme que o bucket `travel-attachments` aparece como **privado** e limitado a 15 MB.
 3. Configure apenas `VITE_SUPABASE_URL` e `VITE_SUPABASE_PUBLISHABLE_KEY` no ambiente web. Nunca use chave `service_role` ou chave secreta no navegador.
 4. As dependências estão fixadas no `pnpm-lock.yaml`; instale com `pnpm install --ignore-scripts`, execute os testes com `pnpm test` e inicie com `pnpm dev`.
+5. Para validar RLS, privilégios, redação dos snapshots e a confirmação financeira ponta a ponta, execute `tests/supabase-audit.integration.sql` no SQL Editor depois das migrações. O script cria dados sintéticos dentro de uma transação e os reverte ao final.
 
 ## Documentação
 Consulte a pasta `docs/`.

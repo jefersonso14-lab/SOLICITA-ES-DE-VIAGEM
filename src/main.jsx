@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   createCollaborator,
@@ -28,7 +28,7 @@ import {
 } from "./lib/api";
 import { supabase } from "./lib/supabase";
 import { readDocument } from "./lib/document-reader";
-import { auditActionLabel, auditEntityLabel } from "./lib/audit.js";
+import { auditActionLabel, auditEntityLabel, filterAuditEvents } from "./lib/audit.js";
 import "./styles.css";
 
 const menu = [
@@ -531,7 +531,7 @@ function Attachments({ attachments, requests, collaborators, canManage, onUpload
     </form><small className="helper">PDF, JPG, PNG, CSV, XLS e XLSX · limite de 15 MB. A confirmação financeira é restrita a gestores.</small></article>
     <article className="panel wide"><div className="panel-head"><div><h3>Arquivos armazenados</h3><p>{visible.length} arquivo(s)</p></div></div>
       <div className="table-wrap"><table><thead><tr><th>Arquivo</th><th>OS</th><th>Tipo</th><th>Status</th><th>Data</th><th></th></tr></thead><tbody>
-        {visible.length ? visible.map(item => <tr key={item.id}><td><b>{item.file_name}</b></td><td>{requests.find(r=>r.id===item.travel_request_id)?.os || "—"}</td><td>{item.mime_type || "—"}</td><td>{item.extraction_status === "extracted" ? "Aguardando conferência" : item.extraction_status === "confirmed" ? "Confirmado" : item.extraction_status || "pending"}</td><td>{formatDateTime(item.created_at)}</td><td className="attachment-actions"><button className="secondary small" onClick={() => openFile(item)}>Abrir</button>{canManage && item.extraction_status !== "confirmed" && <button className="secondary small" disabled={busy} onClick={() => startReview(item)}>Conferir</button>}</td></tr>) : <tr><td colSpan="6" className="table-empty">Nenhum anexo encontrado.</td></tr>}
+        {visible.length ? visible.map(item => <tr key={item.id}><td><b>{item.file_name}</b></td><td>{requests.find(r=>r.id===item.travel_request_id)?.os || "—"}</td><td>{item.mime_type || "—"}</td><td>{item.extraction_status === "extracted" ? "Aguardando conferência" : item.extraction_status === "confirmed" ? "Confirmado" : item.extraction_status || "pending"}</td><td>{formatDateTime(item.created_at)}</td><td className="attachment-actions"><button className="secondary small" aria-label={`Abrir ${item.file_name}`} onClick={() => openFile(item)}>Abrir</button>{canManage && item.extraction_status !== "confirmed" && <button className="secondary small" aria-label={`Conferir ${item.file_name}`} disabled={busy} onClick={() => startReview(item)}>Conferir</button>}</td></tr>) : <tr><td colSpan="6" className="table-empty">Nenhum anexo encontrado.</td></tr>}
       </tbody></table></div>
     </article>
     {reviewing && <article className="panel wide extraction-review"><div className="panel-head"><div><h3>Conferência antes do lançamento</h3><p>Revise e corrija os campos; o documento sozinho não altera custos.</p></div><button className="secondary" onClick={() => setReviewing(null)}>Fechar</button></div>
@@ -556,12 +556,13 @@ function Dossier({ requests }) {
   const [requestId, setRequestId] = useState("");
   const [dossier, setDossier] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
   useEffect(() => { if (!requestId && requests[0]?.id) setRequestId(requests[0].id); }, [requests, requestId]);
   useEffect(() => {
     if (!requestId) return;
-    let active = true; setBusy(true);
+    let active = true; setBusy(true); setError("");
     loadTravelDossier(requestId).then(value => { if (active) setDossier(value); })
-      .catch(error => { if (active) { setDossier(null); alert(error.message || "Não foi possível carregar o dossiê."); } })
+      .catch(error => { if (active) { setDossier(null); setError(error.message || "Não foi possível carregar o dossiê."); } })
       .finally(() => { if (active) setBusy(false); });
     return () => { active = false; };
   }, [requestId]);
@@ -581,6 +582,8 @@ function Dossier({ requests }) {
   }
   return <section className="content"><div className="welcome"><div><h2>Dossiê da OS</h2><p>Solicitação, pessoas, serviços, documentos, custos e total consolidado.</p></div><div className="cost-actions"><SelectField label="OS" value={requestId} onChange={setRequestId} options={requests.map(item => [item.id, item.os + " — " + [item.city,item.state].filter(Boolean).join("/")])} placeholder="Selecione a OS" /></div></div>
     {busy && <article className="panel" role="status" aria-live="polite">Carregando dossiê...</article>}
+    {error && <div className="notice error" role="alert">{error}</div>}
+    {!busy && !error && !request && <article className="panel empty"><h3>Nenhuma OS disponível</h3><p>Crie uma solicitação ou escolha uma OS para consultar o dossiê.</p></article>}
     {request && !busy && <><div className="stats"><Stat label="OS" value={request.os} note={statusMap[request.status]?.[0] || request.status} /><Stat label="Destino" value={[request.city,request.state].filter(Boolean).join(" / ") || "—"} note={`${formatDate(request.start_date)} — ${formatDate(request.end_date)}`} /><Stat label="Colaboradores" value={dossier.collaborators.length} note="Vinculados à solicitação" /><Stat label="Total da composição" value={money(dossier.total)} note={`${dossier.costs.length} lançamento(s) financeiros`} /></div>
       <article className="panel wide"><div className="panel-head"><div><h3>Solicitação e equipe</h3><p>{request.client?.name || "Cliente não informado"} · {[request.contract?.code,request.contract?.name].filter(Boolean).join(" — ") || "Sem contrato"}</p></div></div><div className="dossier-people">{dossier.collaborators.length ? dossier.collaborators.map(person => <span className="badge info" key={person.id}>{person.name}{person.cpf ? ` · ${person.cpf}` : ""}</span>) : <span>Nenhum colaborador vinculado.</span>}</div></article>
       <div className="report-columns">{serviceGroups.map(([label, items, description]) => <article className="panel" key={label}><div className="panel-head"><div><h3>{label}</h3><p>{items.length} registro(s)</p></div></div>{items.map((item,index) => <div className="report-row" key={item.id || index}><span>{description(item)}</span><b>{money(serviceAmount(label, item))}</b></div>)}{!items.length && <p>Sem registros.</p>}</article>)}</div>
@@ -609,17 +612,7 @@ function History({ requests }) {
 
   const entityOptions = useMemo(() => [...new Set(events.map(event => event.entity_type))]
     .map(type => [type, auditEntityLabel(type)]).sort((a, b) => a[1].localeCompare(b[1], "pt-BR")), [events]);
-  const filtered = useMemo(() => events.filter(event => {
-    const request = requests.find(item => item.id === event.travel_request_id);
-    const date = String(event.created_at || "").slice(0, 10);
-    const searchText = [event.summary, event.actor_name, request?.os, event.entity_id].filter(Boolean).join(" ").toLocaleLowerCase("pt-BR");
-    return (!filters.search || searchText.includes(filters.search.toLocaleLowerCase("pt-BR")))
-      && (!filters.request || event.travel_request_id === filters.request)
-      && (!filters.entity || event.entity_type === filters.entity)
-      && (!filters.action || event.action === filters.action)
-      && (!filters.start || date >= filters.start)
-      && (!filters.end || date <= filters.end);
-  }), [events, filters, requests]);
+  const filtered = useMemo(() => filterAuditEvents(events, requests, filters), [events, filters, requests]);
 
   return <section className="content">
     <div className="welcome"><div><h2>Histórico e auditoria</h2><p>Alterações recentes com autor, horário, OS e campos afetados.</p></div><button className="secondary" onClick={refresh} disabled={busy}>{busy ? "Atualizando..." : "Atualizar"}</button></div>
@@ -682,7 +675,7 @@ function RequestModal({ clients, contracts, collaborators, onClose, onSave }) {
     <div className="form-section"><b>Colaboradores da OS</b><div className="collaborator-picker">
       {collaborators.length ? collaborators.map((p) => <label key={p.id} className={form.collaborator_ids.includes(p.id) ? "person-option selected" : "person-option"}><input type="checkbox" checked={form.collaborator_ids.includes(p.id)} onChange={() => toggleCollaborator(p.id)} /><span><b>{p.name}</b><small>{p.sector || "Sem setor"}{p.uf ? " · " + p.uf : ""}</small></span></label>) : <small className="helper">Cadastre colaboradores antes de associá-los à OS.</small>}
     </div></div>
-    <div className="form-section"><b>Serviços da viagem</b><div className="checks">{["Passagem", "Hospedagem", "Veículo", "Refeições", "Lavanderia", "Uber"].map((x) => <label key={x}><input type="checkbox" />{x}</label>)}</div><small className="helper">Os serviços serão persistidos nos módulos específicos na próxima etapa.</small></div>
+    <div className="form-section"><b>Serviços da viagem</b><small className="helper">Depois de criar a OS, use “Compor OS” em Custos para registrar passagens, hospedagem, veículo, refeições, lavanderia e Uber.</small></div>
     <div className="modal-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary" disabled={busy}>{busy ? "Salvando..." : "Salvar rascunho"}</button></div>
   </form></ModalShell>;
 }
@@ -702,7 +695,46 @@ function CollaboratorModal({ onClose, onSave }) {
 }
 
 function ModalShell({ title, onClose, children }) {
-  return <div className="overlay"><div className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className="modal-head"><div><span className="eyebrow">CADASTRO</span><h2 id="modal-title">{title}</h2></div><button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button></div>{children}</div></div>;
+  const modalRef = useRef(null);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement;
+    const modal = modalRef.current;
+    const firstFocusable = modal?.querySelector("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])");
+    (firstFocusable || modal)?.focus();
+    return () => previousFocus?.isConnected && previousFocus.focus();
+  }, []);
+
+  function handleKeyDown(event) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    if (event.key !== "Tab") return;
+
+    const focusable = [...(modalRef.current?.querySelectorAll("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])") || [])]
+      .filter(element => element.getAttribute("aria-hidden") !== "true");
+    if (!focusable.length) {
+      event.preventDefault();
+      modalRef.current?.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === modalRef.current)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (document.activeElement === last || !focusable.includes(document.activeElement))) {
+      event.preventDefault();
+      first.focus();
+    } else if (event.shiftKey && !focusable.includes(document.activeElement)) {
+      event.preventDefault();
+      last.focus();
+    }
+  }
+
+  return <div className="overlay"><div ref={modalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" tabIndex={-1} onKeyDown={handleKeyDown}><div className="modal-head"><div><span className="eyebrow">CADASTRO</span><h2 id="modal-title">{title}</h2></div><button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button></div>{children}</div></div>;
 }
 
 function Field({ label, value = "", onChange, type = "text", required = false, disabled = false, maxLength, accept, min, step }) {

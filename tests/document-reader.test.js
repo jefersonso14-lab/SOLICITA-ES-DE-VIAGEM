@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { isSupportedDocument, parseDocumentFields } from "../src/lib/document-reader.js";
 import { buildCostComposition } from "../src/lib/cost-composition.js";
-import { auditActionLabel, summarizeAuditEvent } from "../src/lib/audit.js";
+import { auditActionLabel, filterAuditEvents, summarizeAuditEvent } from "../src/lib/audit.js";
 
 test("accepts supported attachment extensions regardless of browser MIME", () => {
   for (const name of ["nota.pdf", "planilha.xlsx", "planilha.xls", "dados.csv", "foto.jpg", "foto.jpeg", "foto.png"]) {
@@ -90,4 +90,30 @@ test("audit summaries show changed fields without exposing field values", () => 
   assert.match(summary, /Descrição/);
   assert.doesNotMatch(summary, /old supplier|new supplier|150/);
   assert.equal(auditActionLabel("delete"), "Remoção");
+});
+
+test("audit summaries use safe field names without reading snapshot values", () => {
+  const summary = summarizeAuditEvent({
+    entity_type: "attachments", action: "update",
+    changed_fields: ["extraction_status", "extracted_data", "extraction_text"]
+  });
+
+  assert.equal(summary, "Anexo atualizado · Estado da extração, Dados extraídos, Texto OCR");
+  assert.doesNotMatch(summary, /cpf|cnpj|supplier|R\$/i);
+});
+
+test("audit filters combine text, OS, entity, action, and inclusive date range", () => {
+  const events = [
+    { id: "1", travel_request_id: "request-1", entity_type: "costs", action: "update", created_at: "2026-10-06T10:00:00Z", actor_name: "Ana Souza", summary: "Custo atualizado · Valor" },
+    { id: "2", travel_request_id: "request-2", entity_type: "attachments", action: "insert", created_at: "2026-10-07T10:00:00Z", actor_name: "Bia Lima", summary: "Anexo criado" },
+    { id: "3", travel_request_id: "request-1", entity_type: "costs", action: "delete", created_at: "2026-10-08T10:00:00Z", actor_name: "Ana Souza", summary: "Custo removido" }
+  ];
+  const requests = [{ id: "request-1", os: "OS-101" }, { id: "request-2", os: "OS-202" }];
+
+  assert.deepEqual(filterAuditEvents(events, requests, {
+    search: "os-101", request: "request-1", entity: "costs", action: "update",
+    start: "2026-10-06", end: "2026-10-06"
+  }).map(event => event.id), ["1"]);
+  assert.deepEqual(filterAuditEvents(events, requests, { search: "bia lima" }).map(event => event.id), ["2"]);
+  assert.deepEqual(filterAuditEvents(events, requests, { start: "2026-10-07", end: "2026-10-08" }).map(event => event.id), ["2", "3"]);
 });
