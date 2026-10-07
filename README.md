@@ -3,7 +3,7 @@
 Plataforma web para centralização de solicitações de viagem, colaboradores, serviços, custos, comprovantes, relatórios e histórico.
 
 ## Status
-Primeira interface navegável em implementação.
+Fluxo de anexos, OCR, validação e Dossiê da OS implementado.
 
 ## Identidade
 - Vermelho e preto como identidade institucional.
@@ -21,6 +21,19 @@ Primeira interface navegável em implementação.
 
 ## Fluxo
 Nova OS → Dados → Colaboradores → Serviços → Custos → Anexos → Revisão → Envio → Dossiê da OS
+
+## Anexos, OCR e Dossiê
+Anexos PDF, XLSX, XLS, CSV, JPG, JPEG e PNG são guardados no bucket privado existente `travel-attachments` (limite de 15 MB). Solicitantes podem enviar documentos nas próprias OS; gestores podem enviar e conferir arquivos das OS que administram. A leitura é feita no navegador: PDF.js e SheetJS leem documentos textuais e planilhas; Tesseract.js tenta OCR em imagens e PDFs digitalizados.
+
+Campos extraídos são sugestões editáveis. Só a ação **Confirmar e lançar custo**, disponível a gestores, grava o custo e seu vínculo em `attachments.cost_id` em uma transação no Supabase. Arquivos não confirmados não entram no consolidado financeiro. A trilha de revisão registra responsável, horário, dados confirmados e custo associado.
+
+O Dossiê da OS agrega solicitação, colaboradores, passagens, hospedagem, veículos, refeições, lavanderia, Uber, custos, anexos, validações e resumo por categoria. A consolidação e os relatórios continuam usando a tabela de custos existente.
+
+### Implantação Supabase
+1. Aplique `supabase/migrations/20261006180030_attachments_ocr_validation_dossier.sql` no projeto Supabase.
+2. Confirme que o bucket `travel-attachments` aparece como **privado** e limitado a 15 MB.
+3. Configure apenas `VITE_SUPABASE_URL` e `VITE_SUPABASE_PUBLISHABLE_KEY` no ambiente web. Nunca use chave `service_role` ou chave secreta no navegador.
+4. As dependências estão fixadas no `pnpm-lock.yaml`; instale com `pnpm install`, execute os testes com `pnpm test` e inicie com `pnpm dev`.
 
 ## Documentação
 Consulte a pasta `docs/`.

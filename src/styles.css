@@ -15,3 +15,7 @@
 .report-row:last-child{border-bottom:0}
 @media(max-width:900px){.report-filters{grid-template-columns:1fr 1fr}.report-columns{grid-template-columns:1fr}}
 @media(max-width:600px){.report-filters{grid-template-columns:1fr}.report-actions{width:100%;flex-wrap:wrap}.report-actions button{flex:1}.cost-actions{width:100%}.cost-actions .field{flex:1}}
+.attachment-actions{display:flex;gap:6px;white-space:nowrap}
+.extraction-review{border-top:3px solid var(--red,#b5121b)}
+.dossier-people{display:flex;gap:8px;flex-wrap:wrap;padding:8px 0}
+.dossier-people .badge{width:max-content}

@@ -19,10 +19,14 @@ import {
   listAttachments,
   uploadAttachment,
   downloadAttachment,
+  saveAttachmentExtraction,
+  confirmAttachmentCost,
+  loadTravelDossier,
   signIn,
   signOut
 } from "./lib/api";
 import { supabase } from "./lib/supabase";
+import { readDocument } from "./lib/document-reader";
 import "./styles.css";
 
 const menu = [
@@ -32,6 +36,7 @@ const menu = [
   ["costs", "Custos"],
   ["reports", "Relatórios"],
   ["files", "Anexos"],
+  ["dossier", "Dossiê da OS"],
   ["history", "Histórico"]
 ];
 
@@ -195,7 +200,7 @@ function AuthenticatedApp({ profile }) {
       <div className="brand"><div className="brand-mark">B</div><div><strong>PLATAFORMA</strong><span>Solicitação de Viagens</span></div></div>
       <nav aria-label="Navegação principal">
         {menu.map(([id, label], i) => <button key={id} className={active === id ? "nav-item active" : "nav-item"} onClick={() => setActive(id)}>
-          <span className="nav-icon" aria-hidden="true">{["⌂", "▣", "♙", "R$", "▤", "□", "◷"][i]}</span>{label}
+          <span className="nav-icon" aria-hidden="true">{["⌂", "▣", "♙", "R$", "▤", "□", "▧", "◷"][i]}</span>{label}
         </button>)}
       </nav>
       <div className="sidebar-footer"><span className="status-dot">●</span> Sistema operacional</div>
@@ -217,8 +222,9 @@ function AuthenticatedApp({ profile }) {
       {active === "people" && <People collaborators={collaborators} search={search} setSearch={setSearch} onNew={canManage ? () => setModal("people") : undefined} />}
       {active === "costs" && <Costs costs={costs} requests={requests} collaborators={collaborators} canManage={canManage} refreshVersion={costRefreshVersion} onCostsUpdated={refreshCosts} onNew={canManage ? () => setModal("cost") : undefined} onServices={canManage ? () => setModal("services") : undefined} />}
       {active === "reports" && <Reports reports={reports} costs={costs} collaborators={collaborators} clients={clients} contracts={contracts} />}
-      {active === "files" && <Attachments attachments={attachments} requests={requests} canManage={canManage} onUploaded={refreshAttachments} />}
-      {!["dashboard", "requests", "people", "costs", "reports"].includes(active) && <Section title={title} />}
+      {active === "files" && <Attachments attachments={attachments} requests={requests} collaborators={collaborators} canManage={canManage} onUploaded={refreshAttachments} onValidated={async () => { await Promise.all([refreshAttachments(), refreshCosts(), refreshReports()]); }} />}
+      {active === "dossier" && <Dossier requests={requests} />}
+      {!["dashboard", "requests", "people", "costs", "reports", "files", "dossier"].includes(active) && <Section title={title} />}
     </main>
 
     {modal === "request" && <RequestModal clients={clients} contracts={contracts} collaborators={collaborators} onClose={() => setModal(null)} onSave={handleSaveRequest} />}
@@ -444,17 +450,29 @@ function Reports({ reports, costs, collaborators, clients, contracts }) {
   </section>;
 }
 
-function Attachments({ attachments, requests, canManage, onUploaded }) {
+function Attachments({ attachments, requests, collaborators, canManage, onUploaded, onValidated }) {
   const [os, setOs] = useState("");
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [reviewing, setReviewing] = useState(null);
+  const [fields, setFields] = useState({});
+  const [reviewBusy, setReviewBusy] = useState(false);
   const visible = os ? attachments.filter(a => a.travel_request_id === os) : attachments;
   async function submit(event) {
     event.preventDefault();
     if (!os || !file) return;
     setBusy(true);
     try {
-      await uploadAttachment({ travelRequestId: os, file });
+      const attachment = await uploadAttachment({ travelRequestId: os, file });
+      try {
+        const request = requests.find(item => item.id === os);
+        const extracted = await readDocument(file, { os: request?.os || "" });
+        await saveAttachmentExtraction(attachment.id, extracted);
+        setReviewing(attachment.id); setFields({ ...extracted.fields, collaborator_id: "" });
+      } catch (error) {
+        console.error("Falha ao ler documento", error);
+        alert(`Arquivo armazenado. A leitura automática falhou: ${error.message || "tente novamente"}`);
+      }
       setFile(null);
       event.target.reset();
       await onUploaded();
@@ -469,18 +487,90 @@ function Attachments({ attachments, requests, canManage, onUploaded }) {
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (error) { alert(error.message || "Não foi possível abrir o arquivo."); }
   }
+  async function startReview(item) {
+    setBusy(true);
+    try {
+      const blob = await downloadAttachment(item.storage_path);
+      const fileCopy = new File([blob], item.file_name, { type: item.mime_type || blob.type });
+      const request = requests.find(requestItem => requestItem.id === item.travel_request_id);
+      const extracted = await readDocument(fileCopy, { os: request?.os || "" });
+      await saveAttachmentExtraction(item.id, extracted);
+      setFields({ ...extracted.fields, collaborator_id: "" }); setReviewing(item.id);
+      await onUploaded();
+    } catch (error) { alert(error.message || "Não foi possível extrair os dados."); }
+    finally { setBusy(false); }
+  }
+  async function confirmReview(event) {
+    event.preventDefault(); setReviewBusy(true);
+    try {
+      await confirmAttachmentCost(reviewing, fields);
+      setReviewing(null); setFields({});
+      await onValidated?.();
+      alert("Dados confirmados e custo vinculado ao documento.");
+    } catch (error) { alert(error.message || "Não foi possível confirmar os dados."); }
+    finally { setReviewBusy(false); }
+  }
   return <section className="content">
     <div className="welcome"><div><h2>Anexos</h2><p>Documentos vinculados às OS com armazenamento privado.</p></div></div>
-    {canManage && <article className="panel wide"><form onSubmit={submit} className="attachment-upload">
+    <article className="panel wide"><form onSubmit={submit} className="attachment-upload">
       <SelectField label="OS" value={os} onChange={setOs} options={requests.map(r => [r.id, r.os + " — " + ([r.city,r.state].filter(Boolean).join(" / ") || "Sem destino")])} placeholder="Selecione a OS" />
-      <Field label="Arquivo" type="file" onChange={v => setFile(v?.[0] || null)} />
+      <Field label="Arquivo" type="file" accept=".pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png" onChange={v => setFile(v?.[0] || null)} />
       <button className="primary" disabled={busy || !os || !file}>{busy ? "Enviando..." : "Enviar arquivo"}</button>
-    </form><small className="helper">PDF, JPG, PNG, CSV, XLS e XLSX · limite de 15 MB.</small></article>}
+    </form><small className="helper">PDF, JPG, PNG, CSV, XLS e XLSX · limite de 15 MB. A confirmação financeira é restrita a gestores.</small></article>
     <article className="panel wide"><div className="panel-head"><div><h3>Arquivos armazenados</h3><p>{visible.length} arquivo(s)</p></div></div>
       <div className="table-wrap"><table><thead><tr><th>Arquivo</th><th>OS</th><th>Tipo</th><th>Status</th><th>Data</th><th></th></tr></thead><tbody>
-        {visible.length ? visible.map(item => <tr key={item.id}><td><b>{item.file_name}</b></td><td>{requests.find(r=>r.id===item.travel_request_id)?.os || "—"}</td><td>{item.mime_type || "—"}</td><td>{item.extraction_status || "pending"}</td><td>{formatDateTime(item.created_at)}</td><td><button className="secondary small" onClick={() => openFile(item)}>Abrir</button></td></tr>) : <tr><td colSpan="6" className="table-empty">Nenhum anexo encontrado.</td></tr>}
+        {visible.length ? visible.map(item => <tr key={item.id}><td><b>{item.file_name}</b></td><td>{requests.find(r=>r.id===item.travel_request_id)?.os || "—"}</td><td>{item.mime_type || "—"}</td><td>{item.extraction_status === "extracted" ? "Aguardando conferência" : item.extraction_status === "confirmed" ? "Confirmado" : item.extraction_status || "pending"}</td><td>{formatDateTime(item.created_at)}</td><td className="attachment-actions"><button className="secondary small" onClick={() => openFile(item)}>Abrir</button>{canManage && item.extraction_status !== "confirmed" && <button className="secondary small" disabled={busy} onClick={() => startReview(item)}>Conferir</button>}</td></tr>) : <tr><td colSpan="6" className="table-empty">Nenhum anexo encontrado.</td></tr>}
       </tbody></table></div>
     </article>
+    {reviewing && <article className="panel wide extraction-review"><div className="panel-head"><div><h3>Conferência antes do lançamento</h3><p>Revise e corrija os campos; o documento sozinho não altera custos.</p></div><button className="secondary" onClick={() => setReviewing(null)}>Fechar</button></div>
+      <form onSubmit={confirmReview}>
+        <div className="report-filters">
+          <Field label="Valor (R$)" type="number" step="0.01" min="0.01" required value={fields.amount ?? ""} onChange={value => setFields(current => ({ ...current, amount: value }))} />
+          <Field label="Data do documento" type="date" value={fields.date || ""} onChange={value => setFields(current => ({ ...current, date: value }))} />
+          <Field label="Fornecedor" value={fields.supplier || ""} onChange={value => setFields(current => ({ ...current, supplier: value }))} />
+          <Field label="Número do documento" value={fields.document_number || ""} onChange={value => setFields(current => ({ ...current, document_number: value }))} />
+          <Field label="CPF/CNPJ" value={fields.tax_id || ""} onChange={value => setFields(current => ({ ...current, tax_id: value }))} />
+          <SelectField label="Categoria" value={fields.category || "other"} onChange={value => setFields(current => ({ ...current, category: value }))} options={[["ticket","Passagem"],["hotel","Hospedagem"],["vehicle","Veículo"],["meal","Refeição"],["laundry","Lavanderia"],["uber","Uber"],["fuel","Combustível"],["other","Outros"]]} />
+          <SelectField label="Colaborador" value={fields.collaborator_id || ""} onChange={value => setFields(current => ({ ...current, collaborator_id: value }))} options={collaborators.map(person => [person.id, person.name])} placeholder="Não identificado" />
+          <Field label="OS" value={requests.find(request => request.id === attachments.find(item => item.id === reviewing)?.travel_request_id)?.os || ""} disabled />
+        </div>
+        <div className="modal-actions"><button type="submit" className="primary" disabled={reviewBusy}>{reviewBusy ? "Confirmando..." : "Confirmar e lançar custo"}</button></div>
+      </form>
+    </article>}
+  </section>;
+}
+
+function Dossier({ requests }) {
+  const [requestId, setRequestId] = useState("");
+  const [dossier, setDossier] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (!requestId && requests[0]?.id) setRequestId(requests[0].id); }, [requests, requestId]);
+  useEffect(() => {
+    if (!requestId) return;
+    let active = true; setBusy(true);
+    loadTravelDossier(requestId).then(value => { if (active) setDossier(value); })
+      .catch(error => { if (active) { setDossier(null); alert(error.message || "Não foi possível carregar o dossiê."); } })
+      .finally(() => { if (active) setBusy(false); });
+    return () => { active = false; };
+  }, [requestId]);
+  const request = dossier?.request;
+  const serviceGroups = [
+    ["Passagens", dossier?.tickets || [], item => item.description || item.provider || "Passagem"],
+    ["Hospedagem", dossier?.lodging || [], item => item.provider || "Hospedagem"],
+    ["Veículos", dossier?.vehicles || [], item => item.description || "Veículo"],
+    ["Refeições", dossier?.meals || [], item => item.meal_type || "Refeição"],
+    ["Lavanderia", dossier?.laundry || [], item => `${item.period_days || ""} dias`],
+    ["Uber", dossier?.uber || [], item => item.description || "Uber"]
+  ];
+  return <section className="content"><div className="welcome"><div><h2>Dossiê da OS</h2><p>Solicitação, pessoas, serviços, documentos, custos e total consolidado.</p></div><div className="cost-actions"><SelectField label="OS" value={requestId} onChange={setRequestId} options={requests.map(item => [item.id, item.os + " — " + [item.city,item.state].filter(Boolean).join("/")])} placeholder="Selecione a OS" /></div></div>
+    {busy && <article className="panel">Carregando dossiê...</article>}
+    {request && !busy && <><div className="stats"><Stat label="OS" value={request.os} note={statusMap[request.status]?.[0] || request.status} /><Stat label="Destino" value={[request.city,request.state].filter(Boolean).join(" / ") || "—"} note={`${formatDate(request.start_date)} — ${formatDate(request.end_date)}`} /><Stat label="Colaboradores" value={dossier.collaborators.length} note="Vinculados à solicitação" /><Stat label="Total consolidado" value={money(dossier.total)} note={`${dossier.costs.length} custo(s) confirmados`} /></div>
+      <article className="panel wide"><div className="panel-head"><div><h3>Solicitação e equipe</h3><p>{request.client?.name || "Cliente não informado"} · {[request.contract?.code,request.contract?.name].filter(Boolean).join(" — ") || "Sem contrato"}</p></div></div><div className="dossier-people">{dossier.collaborators.length ? dossier.collaborators.map(person => <span className="badge info" key={person.id}>{person.name}{person.cpf ? ` · ${person.cpf}` : ""}</span>) : <span>Nenhum colaborador vinculado.</span>}</div></article>
+      <div className="report-columns">{serviceGroups.map(([label, items, description]) => <article className="panel" key={label}><div className="panel-head"><div><h3>{label}</h3><p>{items.length} registro(s)</p></div></div>{items.map((item,index) => <div className="report-row" key={item.id || index}><span>{description(item)}</span><b>{money(item.amount ?? item.cost ?? item.rental_cost ?? item.unit_cost ?? 0)}</b></div>)}{!items.length && <p>Sem registros.</p>}</article>)}</div>
+      <article className="panel wide"><div className="panel-head"><div><h3>Custos confirmados</h3><p>Somente lançamentos financeiros salvos, com documento de origem quando disponível.</p></div></div><div className="table-wrap"><table><thead><tr><th>Categoria</th><th>Descrição</th><th>Valor</th><th>Data</th><th>Origem</th></tr></thead><tbody>{dossier.costs.map(cost => <tr key={cost.id}><td>{cost.category}</td><td>{cost.description || "—"}</td><td>{money(cost.amount)}</td><td>{formatDate(cost.cost_date)}</td><td>{dossier.attachments.find(item => item.cost_id === cost.id)?.file_name || cost.source || "Manual"}</td></tr>)}{!dossier.costs.length && <tr><td colSpan="5" className="table-empty">Nenhum custo consolidado.</td></tr>}</tbody></table></div></article>
+      <div className="report-columns"><article className="panel"><div className="panel-head"><div><h3>Anexos e validação</h3><p>Estados da extração e conferência.</p></div></div>{dossier.attachments.map(item => <div className="report-row" key={item.id}><span>{item.file_name}</span><b>{item.extraction_status || "pending"}</b></div>)}{!dossier.attachments.length && <p>Sem anexos.</p>}</article><article className="panel"><div className="panel-head"><div><h3>Histórico</h3><p>Criação e validações registradas.</p></div></div>{dossier.history.map((event,index) => <div className="report-row" key={index}><span>{event.label}</span><b>{formatDateTime(event.date)}</b></div>)}</article></div>
+      <article className="panel wide"><div className="panel-head"><div><h3>Resumo para relatório</h3><p>Mesma composição financeira usada na consolidação e nos relatórios.</p></div></div>{Object.entries(dossier.byCategory).map(([category,amount]) => <div className="report-row" key={category}><span>{category}</span><b>{money(amount)}</b></div>)}<div className="composition-total"><span>Total consolidado</span><strong>{money(dossier.total)}</strong></div></article>
+    </>}
   </section>;
 }
 
@@ -548,8 +638,8 @@ function ModalShell({ title, onClose, children }) {
   return <div className="overlay"><div className="modal" role="dialog" aria-modal="true"><div className="modal-head"><div><span className="eyebrow">CADASTRO</span><h2>{title}</h2></div><button className="close" onClick={onClose} aria-label="Fechar">×</button></div>{children}</div></div>;
 }
 
-function Field({ label, value = "", onChange, type = "text", required = false, disabled = false, maxLength }) {
-  return <label className="field"><span>{label}{required ? " *" : ""}</span><input type={type} value={value} onChange={(e) => onChange?.(e.target.value)} required={required} disabled={disabled} maxLength={maxLength} /></label>;
+function Field({ label, value = "", onChange, type = "text", required = false, disabled = false, maxLength, accept, min, step }) {
+  return <label className="field"><span>{label}{required ? " *" : ""}</span><input type={type} {...(type === "file" ? { accept, onChange: e => onChange?.(e.target.files) } : { value, onChange: e => onChange?.(e.target.value) })} required={required} disabled={disabled} maxLength={maxLength} min={min} step={step} /></label>;
 }
 
 function SelectField({ label, value, onChange, options, placeholder }) {

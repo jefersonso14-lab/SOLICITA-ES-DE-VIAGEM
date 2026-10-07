@@ -290,31 +290,100 @@ export async function uploadAttachment({ travelRequestId, file, description = ""
     "application/vnd.ms-excel",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
   ];
-  if (!allowed.includes(file.type)) throw new Error("Formato não suportado. Use PDF, JPG, PNG, CSV, XLS ou XLSX.");
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  const allowedExtensions = ["pdf", "xlsx", "xls", "csv", "jpg", "jpeg", "png"];
+  if (!allowedExtensions.includes(extension) || (file.type && !allowed.includes(file.type) && !(extension === "csv" && file.type === "application/vnd.ms-excel"))) {
+    throw new Error("Formato não suportado. Use PDF, XLSX, XLS, CSV, JPG, JPEG ou PNG.");
+  }
   const maxSize = 15 * 1024 * 1024;
   if (file.size > maxSize) throw new Error("O arquivo excede o limite de 15 MB.");
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
   const path = user.id + "/" + travelRequestId + "/" + crypto.randomUUID() + "-" + safeName;
-  const { error: uploadError } = await client.storage.from("travel-documents").upload(path, file, { upsert: false });
+  const { error: uploadError } = await client.storage.from("travel-attachments").upload(path, file, { upsert: false });
   if (uploadError) throw uploadError;
   const { data, error } = await client.from("attachments").insert({
     travel_request_id: travelRequestId,
+    uploaded_by: user.id,
     file_name: file.name,
     storage_path: path,
-    mime_type: file.type || null,
+    mime_type: file.type || ({ csv: "text/csv", xls: "application/vnd.ms-excel", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", pdf: "application/pdf" }[extension]),
     file_size: file.size,
     extraction_status: "pending",
     extracted_data: { description }
   }).select("*").single();
   if (error) {
-    await client.storage.from("travel-documents").remove([path]);
+    await client.storage.from("travel-attachments").remove([path]);
     throw error;
   }
   return data;
 }
 
 export async function downloadAttachment(path) {
-  const { data, error } = await requireSupabase().storage.from("travel-documents").download(path);
+  const { data, error } = await requireSupabase().storage.from("travel-attachments").download(path);
   if (error) throw error;
   return data;
+}
+
+export async function saveAttachmentExtraction(attachmentId, extraction) {
+  const { data, error } = await requireSupabase().from("attachments").update({
+    extraction_status: "extracted",
+    extracted_data: extraction.fields,
+    extraction_text: extraction.text,
+    extraction_method: extraction.method
+  }).eq("id", attachmentId).select("*").single();
+  if (error) throw error;
+  return data;
+}
+
+export async function confirmAttachmentCost(attachmentId, fields) {
+  const { data, error } = await requireSupabase().rpc("confirm_attachment_cost", {
+    p_attachment_id: attachmentId,
+    p_fields: fields
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function loadTravelDossier(travelRequestId) {
+  const client = requireSupabase();
+  const [requestResult, collaboratorResult, ticketResult, lodgingResult, vehicleResult, mealResult, laundryResult, uberResult, costResult, attachmentResult, composition, reportResult] = await Promise.all([
+    client.from("travel_requests").select("*,client:clients(name),contract:contracts(code,name)").eq("id", travelRequestId).single(),
+    client.from("travel_request_collaborators").select("collaborator:collaborators(id,name,cpf,sector)").eq("travel_request_id", travelRequestId),
+    client.from("tickets").select("*").eq("travel_request_id", travelRequestId),
+    client.from("accommodations").select("*").eq("travel_request_id", travelRequestId),
+    client.from("vehicles").select("*").eq("travel_request_id", travelRequestId),
+    client.from("meals").select("*").eq("travel_request_id", travelRequestId),
+    client.from("laundry").select("*").eq("travel_request_id", travelRequestId),
+    client.from("uber_expenses").select("*").eq("travel_request_id", travelRequestId),
+    client.from("costs").select("*").eq("travel_request_id", travelRequestId).order("created_at", { ascending: false }),
+    listAttachments(travelRequestId),
+    listCostComposition(travelRequestId),
+    client.from("travel_request_cost_report").select("total_cost").eq("travel_request_id", travelRequestId).maybeSingle()
+  ]);
+  for (const result of [requestResult, collaboratorResult, ticketResult, lodgingResult, vehicleResult, mealResult, laundryResult, uberResult, costResult]) if (result.error) throw result.error;
+  const request = requestResult.data;
+  const links = collaboratorResult.data || [];
+  let reviewEvents = [];
+  const attachmentIds = attachmentResult.map(item => item.id);
+  if (attachmentIds.length) {
+    const { data, error } = await client.from("attachment_extraction_reviews")
+      .select("id,attachment_id,reviewer_id,reviewed_at,action,cost_id")
+      .in("attachment_id", attachmentIds).order("reviewed_at", { ascending: false });
+    if (error) throw error;
+    reviewEvents = data || [];
+  }
+  return {
+    request,
+    collaborators: links.map(link => link.collaborator).filter(Boolean),
+    tickets: ticketResult.data || [], lodging: lodgingResult.data || [], vehicles: vehicleResult.data || [],
+    meals: mealResult.data || [], laundry: laundryResult.data || [], uber: uberResult.data || [],
+    costs: costResult.data || [], attachments: attachmentResult,
+    total: reportResult.error ? composition.total : Number(reportResult.data?.total_cost ?? composition.total),
+    byCategory: (costResult.data || []).reduce((totals, cost) => {
+      totals[cost.category] = (totals[cost.category] || 0) + Number(cost.amount || 0);
+      return totals;
+    }, {}),
+    history: [{ label: "Solicitação criada", date: request.created_at },
+      ...reviewEvents.map(event => ({ label: `${event.action === "rejected" ? "Extração rejeitada" : "Extração validada"}: ${attachmentResult.find(a => a.id === event.attachment_id)?.file_name || "anexo"}`, date: event.reviewed_at }))]
+  };
 }
