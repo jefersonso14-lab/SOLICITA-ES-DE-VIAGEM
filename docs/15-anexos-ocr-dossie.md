@@ -6,7 +6,7 @@ O bucket `travel-attachments` existente é privado, aceita PDF, XLSX, XLS, CSV, 
 
 ## Leitura e campos sugeridos
 
-PDF.js extrai texto de PDF e SheetJS lê planilhas no navegador. Quando o PDF não possui texto, a primeira página é rasterizada para OCR; imagens passam por OCR Tesseract em português. O processamento é limitado às primeiras dez páginas do PDF. O navegador identifica sugestões de valor, data, fornecedor, número, CPF/CNPJ e categoria. OS vem do vínculo selecionado; o colaborador pode ser escolhido na revisão. A qualidade da extração depende do documento e deve ser conferida.
+PDF.js extrai texto de PDF e SheetJS lê planilhas no navegador. Quando o PDF não possui texto, a primeira página é rasterizada para OCR; imagens passam por OCR Tesseract em português. O processamento é limitado às primeiras dez páginas do PDF. O navegador identifica sugestões de valor, data, fornecedor, número, CPF/CNPJ e categoria; também sugere colaborador quando o nome aparece no documento e corresponde a alguém vinculado à OS. A OS vem do vínculo selecionado, e os campos podem ser corrigidos na revisão. A qualidade da extração depende do documento e deve ser conferida.
 
 ## Validação e custos
 
@@ -14,7 +14,7 @@ O estado `extracted` indica dados extraídos aguardando conferência. Valor, dat
 
 ## Dossiê e relatórios
 
-O Dossiê da OS reúne dados do pedido e cliente/contrato, colaboradores, passagens, hospedagem, veículos, refeições, lavanderia, Uber, custos, anexos, histórico de validação e total por categoria. O custo originado em comprovante preserva o anexo pela relação existente `attachments.cost_id`. Custos confirmados permanecem na composição usada por consolidação e relatórios.
+O Dossiê da OS reúne dados do pedido e cliente/contrato, colaboradores, passagens, hospedagem, veículos, refeições, lavanderia, Uber, custos, anexos, histórico de validação e total por categoria. O custo originado em comprovante preserva o anexo pela relação existente `attachments.cost_id`. A composição ao vivo soma custos confirmados e serviços estruturados; linhas `auto:` da tabela de custos, que espelham esses serviços após consolidação, são ignoradas nessa tela para evitar duplicidade. Os relatórios usam os lançamentos persistidos e são atualizados após a consolidação.
 
 ## Implantação e verificação
 

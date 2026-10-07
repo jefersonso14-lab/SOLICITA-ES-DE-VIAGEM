@@ -16,6 +16,7 @@ import {
   syncTravelRequestCosts,
   listTravelRequestReports,
   listAttachments,
+  listTravelRequestCollaborators,
   uploadAttachment,
   downloadAttachment,
   saveAttachmentExtraction,
@@ -220,7 +221,7 @@ function AuthenticatedApp({ profile }) {
       {active === "dashboard" && <Dashboard requests={requests} costs={costs} search={search} setSearch={setSearch} onNew={() => setModal("request")} />}
       {active === "requests" && <Requests requests={requests} search={search} setSearch={setSearch} onNew={() => setModal("request")} />}
       {active === "people" && <People collaborators={collaborators} search={search} setSearch={setSearch} onNew={canManage ? () => setModal("people") : undefined} />}
-      {active === "costs" && <Costs costs={costs} requests={requests} collaborators={collaborators} canManage={canManage} refreshVersion={costRefreshVersion} onCostsUpdated={refreshCosts} onNew={canManage ? () => setModal("cost") : undefined} onServices={canManage ? () => setModal("services") : undefined} />}
+      {active === "costs" && <Costs costs={costs} requests={requests} collaborators={collaborators} canManage={canManage} refreshVersion={costRefreshVersion} onCostsUpdated={async () => { await Promise.all([refreshCosts(), refreshReports()]); }} onNew={canManage ? () => setModal("cost") : undefined} onServices={canManage ? () => setModal("services") : undefined} />}
       {active === "reports" && <Reports reports={reports} costs={costs} collaborators={collaborators} clients={clients} contracts={contracts} />}
       {active === "files" && <Attachments attachments={attachments} requests={requests} collaborators={collaborators} canManage={canManage} onUploaded={refreshAttachments} onValidated={async () => { await Promise.all([refreshAttachments(), refreshCosts(), refreshReports()]); }} />}
       {active === "dossier" && <Dossier requests={requests} />}
@@ -459,6 +460,11 @@ function Attachments({ attachments, requests, collaborators, canManage, onUpload
   const [fields, setFields] = useState({});
   const [reviewBusy, setReviewBusy] = useState(false);
   const visible = os ? attachments.filter(a => a.travel_request_id === os) : attachments;
+  function matchCollaboratorId(name, requestCollaborators) {
+    if (!name) return "";
+    const normalize = value => String(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR");
+    return requestCollaborators.find(person => normalize(person.name) === normalize(name))?.id || "";
+  }
   async function submit(event) {
     event.preventDefault();
     if (!os || !file) return;
@@ -467,9 +473,10 @@ function Attachments({ attachments, requests, collaborators, canManage, onUpload
       const attachment = await uploadAttachment({ travelRequestId: os, file });
       try {
         const request = requests.find(item => item.id === os);
-        const extracted = await readDocument(file, { os: request?.os || "" });
+        const requestCollaborators = await listTravelRequestCollaborators(os);
+        const extracted = await readDocument(file, { os: request?.os || "", collaborators: requestCollaborators });
         await saveAttachmentExtraction(attachment.id, extracted);
-        setReviewing(attachment.id); setFields({ ...extracted.fields, collaborator_id: "" });
+        setReviewing(attachment.id); setFields({ ...extracted.fields, collaborator_id: matchCollaboratorId(extracted.fields.collaborator, requestCollaborators) });
       } catch (error) {
         console.error("Falha ao ler documento", error);
         alert(`Arquivo armazenado. A leitura automática falhou: ${error.message || "tente novamente"}`);
@@ -494,9 +501,10 @@ function Attachments({ attachments, requests, collaborators, canManage, onUpload
       const blob = await downloadAttachment(item.storage_path);
       const fileCopy = new File([blob], item.file_name, { type: item.mime_type || blob.type });
       const request = requests.find(requestItem => requestItem.id === item.travel_request_id);
-      const extracted = await readDocument(fileCopy, { os: request?.os || "" });
+      const requestCollaborators = await listTravelRequestCollaborators(item.travel_request_id);
+      const extracted = await readDocument(fileCopy, { os: request?.os || "", collaborators: requestCollaborators });
       await saveAttachmentExtraction(item.id, extracted);
-      setFields({ ...extracted.fields, collaborator_id: "" }); setReviewing(item.id);
+      setFields({ ...extracted.fields, collaborator_id: matchCollaboratorId(extracted.fields.collaborator, requestCollaborators) }); setReviewing(item.id);
       await onUploaded();
     } catch (error) { alert(error.message || "Não foi possível extrair os dados."); }
     finally { setBusy(false); }
@@ -563,11 +571,16 @@ function Dossier({ requests }) {
     ["Lavanderia", dossier?.laundry || [], item => `${item.period_days || ""} dias`],
     ["Uber", dossier?.uber || [], item => item.description || "Uber"]
   ];
+  function serviceAmount(label, item) {
+    if (label === "Veículos") return Number(item.rental_cost || 0) + Number(item.toll_cost || 0) + Number(item.parking_cost || 0) + Number(item.other_cost || 0);
+    if (label === "Refeições") return Number(item.unit_cost || 0) * Number(item.quantity || 1);
+    return Number(item.amount ?? item.cost ?? item.rental_cost ?? item.unit_cost ?? 0);
+  }
   return <section className="content"><div className="welcome"><div><h2>Dossiê da OS</h2><p>Solicitação, pessoas, serviços, documentos, custos e total consolidado.</p></div><div className="cost-actions"><SelectField label="OS" value={requestId} onChange={setRequestId} options={requests.map(item => [item.id, item.os + " — " + [item.city,item.state].filter(Boolean).join("/")])} placeholder="Selecione a OS" /></div></div>
     {busy && <article className="panel" role="status" aria-live="polite">Carregando dossiê...</article>}
-    {request && !busy && <><div className="stats"><Stat label="OS" value={request.os} note={statusMap[request.status]?.[0] || request.status} /><Stat label="Destino" value={[request.city,request.state].filter(Boolean).join(" / ") || "—"} note={`${formatDate(request.start_date)} — ${formatDate(request.end_date)}`} /><Stat label="Colaboradores" value={dossier.collaborators.length} note="Vinculados à solicitação" /><Stat label="Total consolidado" value={money(dossier.total)} note={`${dossier.costs.length} custo(s) confirmados`} /></div>
+    {request && !busy && <><div className="stats"><Stat label="OS" value={request.os} note={statusMap[request.status]?.[0] || request.status} /><Stat label="Destino" value={[request.city,request.state].filter(Boolean).join(" / ") || "—"} note={`${formatDate(request.start_date)} — ${formatDate(request.end_date)}`} /><Stat label="Colaboradores" value={dossier.collaborators.length} note="Vinculados à solicitação" /><Stat label="Total da composição" value={money(dossier.total)} note={`${dossier.costs.length} lançamento(s) financeiros`} /></div>
       <article className="panel wide"><div className="panel-head"><div><h3>Solicitação e equipe</h3><p>{request.client?.name || "Cliente não informado"} · {[request.contract?.code,request.contract?.name].filter(Boolean).join(" — ") || "Sem contrato"}</p></div></div><div className="dossier-people">{dossier.collaborators.length ? dossier.collaborators.map(person => <span className="badge info" key={person.id}>{person.name}{person.cpf ? ` · ${person.cpf}` : ""}</span>) : <span>Nenhum colaborador vinculado.</span>}</div></article>
-      <div className="report-columns">{serviceGroups.map(([label, items, description]) => <article className="panel" key={label}><div className="panel-head"><div><h3>{label}</h3><p>{items.length} registro(s)</p></div></div>{items.map((item,index) => <div className="report-row" key={item.id || index}><span>{description(item)}</span><b>{money(item.amount ?? item.cost ?? item.rental_cost ?? item.unit_cost ?? 0)}</b></div>)}{!items.length && <p>Sem registros.</p>}</article>)}</div>
+      <div className="report-columns">{serviceGroups.map(([label, items, description]) => <article className="panel" key={label}><div className="panel-head"><div><h3>{label}</h3><p>{items.length} registro(s)</p></div></div>{items.map((item,index) => <div className="report-row" key={item.id || index}><span>{description(item)}</span><b>{money(serviceAmount(label, item))}</b></div>)}{!items.length && <p>Sem registros.</p>}</article>)}</div>
       <article className="panel wide"><div className="panel-head"><div><h3>Custos confirmados</h3><p>Somente lançamentos financeiros salvos, com documento de origem quando disponível.</p></div></div><div className="table-wrap"><table><thead><tr><th>Categoria</th><th>Descrição</th><th>Valor</th><th>Data</th><th>Origem</th></tr></thead><tbody>{dossier.costs.map(cost => <tr key={cost.id}><td>{cost.category}</td><td>{cost.description || "—"}</td><td>{money(cost.amount)}</td><td>{formatDate(cost.cost_date)}</td><td>{dossier.attachments.find(item => item.cost_id === cost.id)?.file_name || cost.source || "Manual"}</td></tr>)}{!dossier.costs.length && <tr><td colSpan="5" className="table-empty">Nenhum custo consolidado.</td></tr>}</tbody></table></div></article>
       <div className="report-columns"><article className="panel"><div className="panel-head"><div><h3>Anexos e validação</h3><p>Estados da extração e conferência.</p></div></div>{dossier.attachments.map(item => <div className="report-row" key={item.id}><span>{item.file_name}</span><b>{item.extraction_status || "pending"}</b></div>)}{!dossier.attachments.length && <p>Sem anexos.</p>}</article><article className="panel"><div className="panel-head"><div><h3>Histórico</h3><p>Criação e validações registradas.</p></div></div>{dossier.history.map((event,index) => <div className="report-row" key={index}><span>{event.label}</span><b>{formatDateTime(event.date)}</b></div>)}</article></div>
       <article className="panel wide"><div className="panel-head"><div><h3>Resumo para relatório</h3><p>Mesma composição financeira usada na consolidação e nos relatórios.</p></div></div>{Object.entries(dossier.byCategory).map(([category,amount]) => <div className="report-row" key={category}><span>{category}</span><b>{money(amount)}</b></div>)}<div className="composition-total"><span>Total consolidado</span><strong>{money(dossier.total)}</strong></div></article>

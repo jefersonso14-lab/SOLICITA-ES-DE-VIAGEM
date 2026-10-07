@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { buildCostComposition } from "./cost-composition.js";
 
 function requireSupabase() {
   if (!supabase) throw new Error("Supabase não configurado.");
@@ -169,26 +170,10 @@ export async function listCostComposition(travelRequestId) {
   ]);
   for (const result of [costs,tickets,hotels,vehicles,meals,laundry,uber]) if (result.error) throw result.error;
 
-  const rows = [];
-  (costs.data || []).forEach(x => rows.push({ category:x.category, amount:Number(x.amount||0), collaborator_id:x.collaborator_id, source:x.source || "manual", description:x.description || "" }));
-  (tickets.data || []).forEach(x => {
-    rows.push({ category:"ticket", amount:Number(x.cost||0), collaborator_id:x.collaborator_id, source:"ticket", description:x.description || "Passagem" });
-    if (x.baggage_included) rows.push({ category:"baggage", amount:0, collaborator_id:x.collaborator_id, source:"ticket", description:`Bagagem: ${x.baggage_quantity || 0}` });
+  return buildCostComposition({
+    costs: costs.data || [], tickets: tickets.data || [], hotels: hotels.data || [],
+    vehicles: vehicles.data || [], meals: meals.data || [], laundry: laundry.data || [], uber: uber.data || []
   });
-  (hotels.data || []).forEach(x => rows.push({ category:"hotel", amount:Number(x.cost||0), source:"accommodation", description:x.provider || "Hospedagem" }));
-  (vehicles.data || []).forEach(x => {
-    [["vehicle",x.rental_cost],["toll",x.toll_cost],["parking",x.parking_cost],["other",x.other_cost]].forEach(([category,amount]) => { if (Number(amount||0) > 0) rows.push({category,amount:Number(amount),source:"vehicle",description:category}); });
-  });
-  (meals.data || []).forEach(x => rows.push({ category:"meal", amount:Number(x.unit_cost||0)*Number(x.quantity||1), collaborator_id:x.collaborator_id, source:"meal", description:x.meal_type }));
-  (laundry.data || []).forEach(x => rows.push({ category:"laundry", amount:Number(x.cost||0), collaborator_id:x.collaborator_id, source:"laundry", description:`Período ${x.period_days} dias` }));
-  (uber.data || []).forEach(x => rows.push({ category:"uber", amount:Number(x.amount||0), collaborator_id:x.collaborator_id, source:"uber", description:x.description || "Uber" }));
-
-  const byCategory = rows.reduce((a,x) => { a[x.category]=(a[x.category]||0)+x.amount; return a; }, {});
-  const byCollaborator = rows.reduce((a,x) => {
-    const key=x.collaborator_id || "sem-colaborador";
-    a[key]=(a[key]||0)+x.amount; return a;
-  }, {});
-  return { rows, byCategory, byCollaborator, total: rows.reduce((s,x)=>s+x.amount,0) };
 }
 
 export async function syncTravelRequestCosts(travelRequestId) {
@@ -346,7 +331,7 @@ export async function confirmAttachmentCost(attachmentId, fields) {
 
 export async function loadTravelDossier(travelRequestId) {
   const client = requireSupabase();
-  const [requestResult, collaboratorResult, ticketResult, lodgingResult, vehicleResult, mealResult, laundryResult, uberResult, costResult, attachmentResult, composition, reportResult] = await Promise.all([
+  const [requestResult, collaboratorResult, ticketResult, lodgingResult, vehicleResult, mealResult, laundryResult, uberResult, costResult, attachmentResult, composition] = await Promise.all([
     client.from("travel_requests").select("*,client:clients(name),contract:contracts(code,name)").eq("id", travelRequestId).single(),
     client.from("travel_request_collaborators").select("collaborator:collaborators(id,name,cpf,sector)").eq("travel_request_id", travelRequestId),
     client.from("tickets").select("*").eq("travel_request_id", travelRequestId),
@@ -357,8 +342,7 @@ export async function loadTravelDossier(travelRequestId) {
     client.from("uber_expenses").select("*").eq("travel_request_id", travelRequestId),
     client.from("costs").select("*").eq("travel_request_id", travelRequestId).order("created_at", { ascending: false }),
     listAttachments(travelRequestId),
-    listCostComposition(travelRequestId),
-    client.from("travel_request_cost_report").select("total_cost").eq("travel_request_id", travelRequestId).maybeSingle()
+    listCostComposition(travelRequestId)
   ]);
   for (const result of [requestResult, collaboratorResult, ticketResult, lodgingResult, vehicleResult, mealResult, laundryResult, uberResult, costResult]) if (result.error) throw result.error;
   const request = requestResult.data;
@@ -378,11 +362,8 @@ export async function loadTravelDossier(travelRequestId) {
     tickets: ticketResult.data || [], lodging: lodgingResult.data || [], vehicles: vehicleResult.data || [],
     meals: mealResult.data || [], laundry: laundryResult.data || [], uber: uberResult.data || [],
     costs: costResult.data || [], attachments: attachmentResult,
-    total: reportResult.error ? composition.total : Number(reportResult.data?.total_cost ?? composition.total),
-    byCategory: (costResult.data || []).reduce((totals, cost) => {
-      totals[cost.category] = (totals[cost.category] || 0) + Number(cost.amount || 0);
-      return totals;
-    }, {}),
+    total: composition.total,
+    byCategory: composition.byCategory,
     history: [{ label: "Solicitação criada", date: request.created_at },
       ...reviewEvents.map(event => ({ label: `${event.action === "rejected" ? "Extração rejeitada" : "Extração validada"}: ${attachmentResult.find(a => a.id === event.attachment_id)?.file_name || "anexo"}`, date: event.reviewed_at }))]
   };

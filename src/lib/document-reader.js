@@ -9,6 +9,10 @@ export function isSupportedDocument(file) {
   return Boolean(extension && MIME_BY_EXTENSION[extension]);
 }
 
+function foldText(value) {
+  return String(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR");
+}
+
 export function parseDocumentFields(text, context = {}) {
   const normalized = text.replace(/\s+/g, " ");
   const moneyCandidates = [...normalized.matchAll(/(?:R\$\s*)?\b(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2}|\d+\.\d{2})\b/g)]
@@ -18,12 +22,26 @@ export function parseDocumentFields(text, context = {}) {
   const taxId = normalized.match(/\b(?:\d{3}\.\d{3}\.\d{3}-\d{2}|\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}|\d{11}|\d{14})\b/)?.[0] || "";
   const number = normalized.match(/(?:nota fiscal|n[úu]mero|documento|nf-e|nfe)\s*(?:n[ºo.]?\s*)?[:#-]?\s*([\w./-]{3,})/i)?.[1] || "";
   const supplier = normalized.match(/(?:fornecedor|emitente|raz[aã]o social)\s*[:\-]\s*([^,;]{3,100}?)(?=\s+(?:nota fiscal|n[úu]mero|documento|nf-e|nfe|cpf|cnpj|data|total|valor)\b|[,;]|$)/i)?.[1]?.trim() || "";
-  const categoryText = normalized.toLowerCase();
-  const category = /hotel|hosped|pousada/.test(categoryText) ? "hotel" : /uber|taxi|99\s/.test(categoryText) ? "uber" : /combust|posto/.test(categoryText) ? "fuel" : /passagem|a[eé]reo|bilhete/.test(categoryText) ? "ticket" : "other";
+  const categoryText = foldText(normalized);
+  const category = /hotel|hosped|pousada/.test(categoryText) ? "hotel"
+    : /uber|taxi|\b99\b/.test(categoryText) ? "uber"
+      : /combust|posto|gasolina|diesel/.test(categoryText) ? "fuel"
+        : /passagem|aereo|bilhete/.test(categoryText) ? "ticket"
+          : /lavanderia|lavagem de roupa/.test(categoryText) ? "laundry"
+            : /refeicao|restaurante|lanchonete|almoco|jantar/.test(categoryText) ? "meal"
+              : /locacao de (veiculo|carro)|aluguel de (veiculo|carro)/.test(categoryText) ? "vehicle"
+                : /pedagio|toll/.test(categoryText) ? "toll"
+                  : /estacionamento|parking/.test(categoryText) ? "parking" : "other";
+  const collaboratorNames = [...(context.collaborators || [])].map(item => typeof item === "string" ? item : item?.name).filter(Boolean).sort((a, b) => b.length - a.length);
+  const foldedText = foldText(normalized);
+  const collaborator = context.collaborator || collaboratorNames.find(name => {
+    const foldedName = foldText(name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|[^\\p{L}\\p{N}])${foldedName}($|[^\\p{L}\\p{N}])`, "u").test(foldedText);
+  }) || "";
   return {
     amount: moneyCandidates.length ? Math.max(...moneyCandidates) : null,
     date, supplier, document_number: number, tax_id: taxId,
-    category, collaborator: context.collaborator || "", os: context.os || ""
+    category, collaborator, os: context.os || ""
   };
 }
 
@@ -45,7 +63,9 @@ async function extractPdf(file) {
     pageTexts.push(content.items.map(item => item.str).join(" "));
   }
   let text = pageTexts.join("\n").trim();
+  let method = "text";
   if (text.replace(/\s/g, "").length < 20) {
+    method = "ocr";
     const page = await pdf.getPage(1);
     const viewport = page.getViewport({ scale: 1.6 });
     const canvas = document.createElement("canvas");
@@ -53,7 +73,7 @@ async function extractPdf(file) {
     await page.render({ canvas, canvasContext: canvas.getContext("2d"), viewport }).promise;
     text = await ocrImage(canvas);
   }
-  return text;
+  return { text, method };
 }
 
 export async function readDocument(file, context = {}) {
@@ -62,8 +82,9 @@ export async function readDocument(file, context = {}) {
   let text = "";
   let method = "text";
   if (extension === "pdf") {
-    text = await extractPdf(file);
-    if (!text.trim()) method = "ocr";
+    const result = await extractPdf(file);
+    text = result.text;
+    method = result.method;
   } else if (["jpg", "jpeg", "png"].includes(extension)) {
     text = await ocrImage(file); method = "ocr";
   } else {
