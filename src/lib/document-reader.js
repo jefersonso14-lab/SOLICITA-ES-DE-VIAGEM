@@ -1,9 +1,3 @@
-import * as pdfjs from "pdfjs-dist";
-import { createWorker } from "tesseract.js";
-import * as XLSX from "xlsx";
-
-pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
-
 const MIME_BY_EXTENSION = {
   pdf: "application/pdf", xls: "application/vnd.ms-excel",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -34,12 +28,15 @@ export function parseDocumentFields(text, context = {}) {
 }
 
 async function ocrImage(image) {
+  const { createWorker } = await import("tesseract.js");
   const worker = await createWorker("por");
   try { return (await worker.recognize(image)).data.text || ""; }
   finally { await worker.terminate(); }
 }
 
 async function extractPdf(file) {
+  const pdfjs = await import("pdfjs-dist");
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
   const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
   const pageTexts = [];
   for (let pageNumber = 1; pageNumber <= Math.min(pdf.numPages, 10); pageNumber += 1) {
@@ -70,6 +67,7 @@ export async function readDocument(file, context = {}) {
   } else if (["jpg", "jpeg", "png"].includes(extension)) {
     text = await ocrImage(file); method = "ocr";
   } else {
+    const XLSX = await import("xlsx");
     const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
     text = workbook.SheetNames.map(name => XLSX.utils.sheet_to_csv(workbook.Sheets[name])).join("\n");
   }

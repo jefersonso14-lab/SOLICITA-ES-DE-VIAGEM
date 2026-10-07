@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import * as XLSX from "xlsx";
 import {
   createCollaborator,
   createTravelRequest,
@@ -423,7 +422,8 @@ function Reports({ reports, costs, collaborators, clients, contracts }) {
     acc[c.collaborator_id] = (acc[c.collaborator_id] || 0) + Number(c.amount || 0); return acc;
   }, {});
   const labels = { ticket:"Passagens", baggage:"Bagagem", hotel:"Hotel", vehicle:"Veículo", toll:"Pedágio", parking:"Estacionamento", fuel:"Combustível", meal:"Refeições", laundry:"Lavanderia", uber:"Uber", other:"Outros" };
-  function exportXlsx() {
+  async function exportXlsx() {
+    const XLSX = await import("xlsx");
     const rows = filtered.map(r => ({ OS:r.os, Cliente:r.client_name || "—", Contrato:[r.contract_code,r.contract_name].filter(Boolean).join(" — ") || "—", Estado:r.state || "—", Cidade:r.city || "—", Gestor:r.manager_name || "—", Inicio:r.start_date || "", Fim:r.end_date || "", Dias:r.days || 0, Status:statusMap[r.status]?.[0] || r.status || "—", "Custo total":Number(r.total_cost || 0), "Itens de custo":r.cost_items || 0 }));
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
