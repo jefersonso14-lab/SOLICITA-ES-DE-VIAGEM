@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { isSupportedDocument, parseDocumentFields } from "../src/lib/document-reader.js";
 import { buildCostComposition } from "../src/lib/cost-composition.js";
+import { auditActionLabel, summarizeAuditEvent } from "../src/lib/audit.js";
 
 test("accepts supported attachment extensions regardless of browser MIME", () => {
   for (const name of ["nota.pdf", "planilha.xlsx", "planilha.xls", "dados.csv", "foto.jpg", "foto.jpeg", "foto.png"]) {
@@ -75,4 +76,18 @@ test("composition follows consolidation rules for vehicle and laundry entries", 
   assert.equal(composition.byCategory.other, 10);
   assert.equal(composition.byCategory.laundry, 60);
   assert.equal(composition.byCollaborator["person-2"], 60);
+});
+
+test("audit summaries show changed fields without exposing field values", () => {
+  const summary = summarizeAuditEvent({
+    entity_type: "costs", action: "update",
+    old_data: { amount: 100, description: "old supplier" },
+    new_data: { amount: 150, description: "new supplier" }
+  });
+
+  assert.match(summary, /Custo atualizado/);
+  assert.match(summary, /Valor/);
+  assert.match(summary, /Descrição/);
+  assert.doesNotMatch(summary, /old supplier|new supplier|150/);
+  assert.equal(auditActionLabel("delete"), "Remoção");
 });

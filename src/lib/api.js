@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { buildCostComposition } from "./cost-composition.js";
+import { summarizeAuditEvent } from "./audit.js";
 
 function requireSupabase() {
   if (!supabase) throw new Error("Supabase não configurado.");
@@ -309,6 +310,32 @@ export async function downloadAttachment(path) {
   return data;
 }
 
+export async function listAuditLogs({ travelRequestId, limit = 250 } = {}) {
+  const client = requireSupabase();
+  const safeLimit = Math.min(Math.max(Number(limit) || 250, 1), 500);
+  let query = client.from("audit_logs")
+    .select("id,user_id,travel_request_id,entity_type,entity_id,action,old_data,new_data,created_at")
+    .order("created_at", { ascending: false })
+    .limit(safeLimit);
+  if (travelRequestId) query = query.eq("travel_request_id", travelRequestId);
+  const { data, error } = await query;
+  if (error) throw error;
+
+  const userIds = [...new Set((data || []).map(event => event.user_id).filter(Boolean))];
+  let namesById = {};
+  if (userIds.length) {
+    const { data: profiles, error: profilesError } = await client.from("profiles")
+      .select("id,full_name").in("id", userIds);
+    if (profilesError) throw profilesError;
+    namesById = Object.fromEntries((profiles || []).map(profile => [profile.id, profile.full_name]));
+  }
+  return (data || []).map(event => ({
+    ...event,
+    actor_name: namesById[event.user_id] || "Usuário do sistema",
+    summary: summarizeAuditEvent(event)
+  }));
+}
+
 export async function saveAttachmentExtraction(attachmentId, extraction) {
   const { data, error } = await requireSupabase().from("attachments").update({
     extraction_status: "extracted",
@@ -331,7 +358,7 @@ export async function confirmAttachmentCost(attachmentId, fields) {
 
 export async function loadTravelDossier(travelRequestId) {
   const client = requireSupabase();
-  const [requestResult, collaboratorResult, ticketResult, lodgingResult, vehicleResult, mealResult, laundryResult, uberResult, costResult, attachmentResult, composition] = await Promise.all([
+  const [requestResult, collaboratorResult, ticketResult, lodgingResult, vehicleResult, mealResult, laundryResult, uberResult, costResult, attachmentResult, composition, auditEvents] = await Promise.all([
     client.from("travel_requests").select("*,client:clients(name),contract:contracts(code,name)").eq("id", travelRequestId).single(),
     client.from("travel_request_collaborators").select("collaborator:collaborators(id,name,cpf,sector)").eq("travel_request_id", travelRequestId),
     client.from("tickets").select("*").eq("travel_request_id", travelRequestId),
@@ -342,7 +369,8 @@ export async function loadTravelDossier(travelRequestId) {
     client.from("uber_expenses").select("*").eq("travel_request_id", travelRequestId),
     client.from("costs").select("*").eq("travel_request_id", travelRequestId).order("created_at", { ascending: false }),
     listAttachments(travelRequestId),
-    listCostComposition(travelRequestId)
+    listCostComposition(travelRequestId),
+    listAuditLogs({ travelRequestId, limit: 500 })
   ]);
   for (const result of [requestResult, collaboratorResult, ticketResult, lodgingResult, vehicleResult, mealResult, laundryResult, uberResult, costResult]) if (result.error) throw result.error;
   const request = requestResult.data;
@@ -364,7 +392,12 @@ export async function loadTravelDossier(travelRequestId) {
     costs: costResult.data || [], attachments: attachmentResult,
     total: composition.total,
     byCategory: composition.byCategory,
-    history: [{ label: "Solicitação criada", date: request.created_at },
-      ...reviewEvents.map(event => ({ label: `${event.action === "rejected" ? "Extração rejeitada" : "Extração validada"}: ${attachmentResult.find(a => a.id === event.attachment_id)?.file_name || "anexo"}`, date: event.reviewed_at }))]
+    history: [
+      { label: "Solicitação criada", date: request.created_at },
+      ...auditEvents.filter(event => !(event.entity_type === "travel_requests" && event.action === "insert"))
+        .map(event => ({ label: event.summary, date: event.created_at, actor: event.actor_name })),
+      ...reviewEvents.filter(event => !auditEvents.some(log => log.entity_type === "attachment_extraction_reviews" && log.entity_id === event.id))
+        .map(event => ({ label: `${event.action === "rejected" ? "Extração rejeitada" : "Extração validada"}: ${attachmentResult.find(a => a.id === event.attachment_id)?.file_name || "anexo"}`, date: event.reviewed_at }))
+    ].sort((a, b) => new Date(b.date) - new Date(a.date))
   };
 }

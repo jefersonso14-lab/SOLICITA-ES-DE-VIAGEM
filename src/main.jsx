@@ -16,6 +16,7 @@ import {
   syncTravelRequestCosts,
   listTravelRequestReports,
   listAttachments,
+  listAuditLogs,
   listTravelRequestCollaborators,
   uploadAttachment,
   downloadAttachment,
@@ -27,6 +28,7 @@ import {
 } from "./lib/api";
 import { supabase } from "./lib/supabase";
 import { readDocument } from "./lib/document-reader";
+import { auditActionLabel, auditEntityLabel } from "./lib/audit.js";
 import "./styles.css";
 
 const menu = [
@@ -225,7 +227,8 @@ function AuthenticatedApp({ profile }) {
       {active === "reports" && <Reports reports={reports} costs={costs} collaborators={collaborators} clients={clients} contracts={contracts} />}
       {active === "files" && <Attachments attachments={attachments} requests={requests} collaborators={collaborators} canManage={canManage} onUploaded={refreshAttachments} onValidated={async () => { await Promise.all([refreshAttachments(), refreshCosts(), refreshReports()]); }} />}
       {active === "dossier" && <Dossier requests={requests} />}
-      {!["dashboard", "requests", "people", "costs", "reports", "files", "dossier"].includes(active) && <Section title={title} />}
+      {active === "history" && <History requests={requests} />}
+      {!["dashboard", "requests", "people", "costs", "reports", "files", "dossier", "history"].includes(active) && <Section title={title} />}
     </main>
 
     {modal === "request" && <RequestModal clients={clients} contracts={contracts} collaborators={collaborators} onClose={() => setModal(null)} onSave={handleSaveRequest} />}
@@ -585,6 +588,56 @@ function Dossier({ requests }) {
       <div className="report-columns"><article className="panel"><div className="panel-head"><div><h3>Anexos e validação</h3><p>Estados da extração e conferência.</p></div></div>{dossier.attachments.map(item => <div className="report-row" key={item.id}><span>{item.file_name}</span><b>{item.extraction_status || "pending"}</b></div>)}{!dossier.attachments.length && <p>Sem anexos.</p>}</article><article className="panel"><div className="panel-head"><div><h3>Histórico</h3><p>Criação e validações registradas.</p></div></div>{dossier.history.map((event,index) => <div className="report-row" key={index}><span>{event.label}</span><b>{formatDateTime(event.date)}</b></div>)}</article></div>
       <article className="panel wide"><div className="panel-head"><div><h3>Resumo para relatório</h3><p>Mesma composição financeira usada na consolidação e nos relatórios.</p></div></div>{Object.entries(dossier.byCategory).map(([category,amount]) => <div className="report-row" key={category}><span>{category}</span><b>{money(amount)}</b></div>)}<div className="composition-total"><span>Total consolidado</span><strong>{money(dossier.total)}</strong></div></article>
     </>}
+  </section>;
+}
+
+function History({ requests }) {
+  const [events, setEvents] = useState([]);
+  const [filters, setFilters] = useState({ search: "", request: "", entity: "", action: "", start: "", end: "" });
+  const [busy, setBusy] = useState(true);
+  const [error, setError] = useState("");
+  const setFilter = (key, value) => setFilters(current => ({ ...current, [key]: value }));
+
+  async function refresh() {
+    setBusy(true); setError("");
+    try { setEvents(await listAuditLogs({ limit: 500 })); }
+    catch (err) { setError(err.message || "Não foi possível consultar o histórico."); }
+    finally { setBusy(false); }
+  }
+
+  useEffect(() => { refresh(); }, []);
+
+  const entityOptions = useMemo(() => [...new Set(events.map(event => event.entity_type))]
+    .map(type => [type, auditEntityLabel(type)]).sort((a, b) => a[1].localeCompare(b[1], "pt-BR")), [events]);
+  const filtered = useMemo(() => events.filter(event => {
+    const request = requests.find(item => item.id === event.travel_request_id);
+    const date = String(event.created_at || "").slice(0, 10);
+    const searchText = [event.summary, event.actor_name, request?.os, event.entity_id].filter(Boolean).join(" ").toLocaleLowerCase("pt-BR");
+    return (!filters.search || searchText.includes(filters.search.toLocaleLowerCase("pt-BR")))
+      && (!filters.request || event.travel_request_id === filters.request)
+      && (!filters.entity || event.entity_type === filters.entity)
+      && (!filters.action || event.action === filters.action)
+      && (!filters.start || date >= filters.start)
+      && (!filters.end || date <= filters.end);
+  }), [events, filters, requests]);
+
+  return <section className="content">
+    <div className="welcome"><div><h2>Histórico e auditoria</h2><p>Alterações recentes com autor, horário, OS e campos afetados.</p></div><button className="secondary" onClick={refresh} disabled={busy}>{busy ? "Atualizando..." : "Atualizar"}</button></div>
+    {error && <div className="notice error" role="alert">{error}</div>}
+    <article className="panel wide"><div className="report-filters">
+      <Field label="Buscar" value={filters.search} onChange={value => setFilter("search", value)} />
+      <SelectField label="OS" value={filters.request} onChange={value => setFilter("request", value)} options={requests.map(item => [item.id, item.os])} placeholder="Todas" />
+      <SelectField label="Registro" value={filters.entity} onChange={value => setFilter("entity", value)} options={entityOptions} placeholder="Todos" />
+      <SelectField label="Ação" value={filters.action} onChange={value => setFilter("action", value)} options={[["insert", "Criação"], ["update", "Alteração"], ["delete", "Remoção"]]} placeholder="Todas" />
+      <Field label="De" type="date" value={filters.start} onChange={value => setFilter("start", value)} />
+      <Field label="Até" type="date" value={filters.end} onChange={value => setFilter("end", value)} />
+    </div></article>
+    <article className="panel wide"><div className="panel-head"><div><h3>Eventos</h3><p>{filtered.length} de {events.length} evento(s) carregado(s)</p></div></div>
+      {busy ? <p role="status" aria-live="polite">Carregando histórico...</p> : <div className="table-wrap"><table><thead><tr><th>Data e hora</th><th>Usuário</th><th>OS</th><th>Ação</th><th>Detalhes</th></tr></thead><tbody>
+        {filtered.length ? filtered.map(event => <tr key={event.id}><td>{formatDateTime(event.created_at)}</td><td>{event.actor_name}</td><td>{requests.find(item => item.id === event.travel_request_id)?.os || "—"}</td><td>{auditActionLabel(event.action)} · {auditEntityLabel(event.entity_type)}</td><td>{event.summary}</td></tr>) : <tr><td colSpan="5" className="table-empty">Nenhum evento encontrado para os filtros.</td></tr>}
+      </tbody></table></div>}
+    </article>
+    <small className="helper">O histórico é somente para consulta. CPF, RG, texto OCR e caminhos privados de arquivos são excluídos dos snapshots.</small>
   </section>;
 }
 
