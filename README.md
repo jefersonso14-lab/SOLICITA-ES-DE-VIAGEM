@@ -22,6 +22,8 @@ Fluxo de anexos, OCR, validação e Dossiê da OS implementado.
 ## Fluxo
 Nova OS → Dados → Colaboradores → Serviços → Custos → Anexos → Revisão → Envio → Dossiê da OS
 
+O formulário da OS registra origem, destino, endereço da obra, período, gestor, equipe e necessidades operacionais (hotel, veículo, refeição extra, táxi/Uber, notebook e consulta de férias ao RH). As opções operacionais são informativas e não entram no total até haver custos registrados.
+
 ## Anexos, OCR e Dossiê
 Anexos PDF, XLSX, XLS, CSV, JPG, JPEG e PNG são guardados no bucket privado existente `travel-attachments` (limite de 15 MB). Solicitantes podem enviar documentos nas próprias OS; gestores podem enviar e conferir arquivos das OS que administram. A leitura é feita no navegador: PDF.js e SheetJS leem documentos textuais e planilhas; Tesseract.js tenta OCR em imagens e PDFs digitalizados.
 

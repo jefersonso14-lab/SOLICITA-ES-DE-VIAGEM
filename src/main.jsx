@@ -259,7 +259,7 @@ function Requests({ requests, search, setSearch, onNew }) {
 }
 
 function RequestsTable({ requests, search, setSearch }) {
-  const filtered = requests.filter((r) => [r.os, r.client?.name, r.city, r.state, r.manager_name, r.status].join(" ").toLowerCase().includes(search.toLowerCase()));
+  const filtered = requests.filter((r) => [r.os, r.client?.name, r.city, r.state, r.origin, r.job_site_address, r.manager_name, r.status].join(" ").toLowerCase().includes(search.toLowerCase()));
   return <article className="panel wide"><div className="panel-head"><div><h3>Solicitações</h3><p>{filtered.length} registro(s) encontrado(s)</p></div><div className="search"><span>⌕</span><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Pesquisar OS, cliente..." aria-label="Pesquisar" /></div></div>
     <div className="table-wrap"><table><thead><tr><th>OS</th><th>Cliente</th><th>Destino</th><th>Período</th><th>Status</th></tr></thead><tbody>
       {filtered.length ? filtered.map((r) => { const [label, cls, icon] = statusMap[r.status] || [r.status, "info", "●"]; return <tr key={r.id}><td><b>{r.os}</b></td><td>{r.client?.name || "—"}</td><td>{[r.city, r.state].filter(Boolean).join(" - ") || "—"}</td><td>{formatDate(r.start_date)} — {formatDate(r.end_date)}</td><td><span className={"badge " + cls}><i>{icon}</i>{label}</span></td></tr>; }) : <tr><td colSpan="5" className="table-empty">Nenhuma solicitação encontrada.</td></tr>}
@@ -567,6 +567,7 @@ function Dossier({ requests }) {
     return () => { active = false; };
   }, [requestId]);
   const request = dossier?.request;
+  const vacationStatusLabel = { pending: "Verificar com o RH", yes: "Sim", no: "Não" };
   const serviceGroups = [
     ["Passagens", dossier?.tickets || [], item => item.description || item.provider || "Passagem"],
     ["Hospedagem", dossier?.lodging || [], item => item.provider || "Hospedagem"],
@@ -585,7 +586,24 @@ function Dossier({ requests }) {
     {error && <div className="notice error" role="alert">{error}</div>}
     {!busy && !error && !request && <article className="panel empty"><h3>Nenhuma OS disponível</h3><p>Crie uma solicitação ou escolha uma OS para consultar o dossiê.</p></article>}
     {request && !busy && <><div className="stats"><Stat label="OS" value={request.os} note={statusMap[request.status]?.[0] || request.status} /><Stat label="Destino" value={[request.city,request.state].filter(Boolean).join(" / ") || "—"} note={`${formatDate(request.start_date)} — ${formatDate(request.end_date)}`} /><Stat label="Colaboradores" value={dossier.collaborators.length} note="Vinculados à solicitação" /><Stat label="Total da composição" value={money(dossier.total)} note={`${dossier.costs.length} lançamento(s) financeiros`} /></div>
-      <article className="panel wide"><div className="panel-head"><div><h3>Solicitação e equipe</h3><p>{request.client?.name || "Cliente não informado"} · {[request.contract?.code,request.contract?.name].filter(Boolean).join(" — ") || "Sem contrato"}</p></div></div><div className="dossier-people">{dossier.collaborators.length ? dossier.collaborators.map(person => <span className="badge info" key={person.id}>{person.name}{person.cpf ? ` · ${person.cpf}` : ""}</span>) : <span>Nenhum colaborador vinculado.</span>}</div></article>
+      <article className="panel wide"><div className="panel-head"><div><h3>Solicitação e equipe</h3><p>{request.client?.name || "Cliente não informado"} · {[request.contract?.code,request.contract?.name].filter(Boolean).join(" — ") || "Sem contrato"}</p></div></div>
+        <div className="request-detail-grid">
+          <div><small>Gestor responsável</small><b>{request.manager_name || "—"}</b></div>
+          <div><small>Origem</small><b>{request.origin || "—"}</b></div>
+          <div><small>Destino</small><b>{[request.city, request.state].filter(Boolean).join(" / ") || "—"}</b></div>
+          <div><small>Período</small><b>{formatDate(request.start_date)} — {formatDate(request.end_date)}</b></div>
+          <div><small>Endereço da obra</small><b>{request.job_site_address || "—"}</b></div>
+          <div><small>Férias próximo à viagem</small><b>{vacationStatusLabel[request.vacation_status] || vacationStatusLabel.pending}</b></div>
+        </div>
+        <div className="request-options-summary">{[
+          ["Cotar hotel", request.hotel_quote_requested],
+          ["Cotar locação de veículo", request.vehicle_quote_requested],
+          ["Pagamento de refeição extra", request.meal_extra_payment],
+          ["Táxi / Uber", request.taxi_uber_requested],
+          ["Empréstimo de notebook", request.notebook_loan_requested]
+        ].map(([label, enabled]) => <span className={enabled ? "request-option requested" : "request-option"} key={label}>{label}: {enabled ? "Sim" : "Não"}</span>)}</div>
+        <div className="dossier-people">{dossier.collaborators.length ? dossier.collaborators.map(person => <span className="badge info" key={person.id}>{person.name}{person.cpf ? ` · ${person.cpf}` : ""}</span>) : <span>Nenhum colaborador vinculado.</span>}</div>
+      </article>
       <div className="report-columns">{serviceGroups.map(([label, items, description]) => <article className="panel" key={label}><div className="panel-head"><div><h3>{label}</h3><p>{items.length} registro(s)</p></div></div>{items.map((item,index) => <div className="report-row" key={item.id || index}><span>{description(item)}</span><b>{money(serviceAmount(label, item))}</b></div>)}{!items.length && <p>Sem registros.</p>}</article>)}</div>
       <article className="panel wide"><div className="panel-head"><div><h3>Custos confirmados</h3><p>Somente lançamentos financeiros salvos, com documento de origem quando disponível.</p></div></div><div className="table-wrap"><table><thead><tr><th>Categoria</th><th>Descrição</th><th>Valor</th><th>Data</th><th>Origem</th></tr></thead><tbody>{dossier.costs.map(cost => <tr key={cost.id}><td>{cost.category}</td><td>{cost.description || "—"}</td><td>{money(cost.amount)}</td><td>{formatDate(cost.cost_date)}</td><td>{dossier.attachments.find(item => item.cost_id === cost.id)?.file_name || cost.source || "Manual"}</td></tr>)}{!dossier.costs.length && <tr><td colSpan="5" className="table-empty">Nenhum custo consolidado.</td></tr>}</tbody></table></div></article>
       <div className="report-columns"><article className="panel"><div className="panel-head"><div><h3>Anexos e validação</h3><p>Estados da extração e conferência.</p></div></div>{dossier.attachments.map(item => <div className="report-row" key={item.id}><span>{item.file_name}</span><b>{item.extraction_status || "pending"}</b></div>)}{!dossier.attachments.length && <p>Sem anexos.</p>}</article><article className="panel"><div className="panel-head"><div><h3>Histórico</h3><p>Criação e validações registradas.</p></div></div>{dossier.history.map((event,index) => <div className="report-row" key={index}><span>{event.label}</span><b>{formatDateTime(event.date)}</b></div>)}</article></div>
@@ -639,7 +657,7 @@ function Section({ title }) {
 }
 
 function RequestModal({ clients, contracts, collaborators, onClose, onSave }) {
-  const [form, setForm] = useState({ os: "", client_id: "", contract_id: "", state: "", city: "", manager_name: "", start_date: "", end_date: "", collaborator_ids: [] });
+  const [form, setForm] = useState({ os: "", client_id: "", contract_id: "", state: "", city: "", origin: "", job_site_address: "", manager_name: "", hotel_quote_requested: false, vehicle_quote_requested: false, meal_extra_payment: false, taxi_uber_requested: false, notebook_loan_requested: false, vacation_status: "pending", start_date: "", end_date: "", collaborator_ids: [] });
   const [busy, setBusy] = useState(false);
   const [contractOptions, setContractOptions] = useState(contracts);
   const set = (key, value) => setForm((current) => ({ ...current, [key]: value }));
@@ -666,8 +684,10 @@ function RequestModal({ clients, contracts, collaborators, onClose, onSave }) {
       <Field label="OS" value={form.os} onChange={(v) => set("os", v)} required />
       <SelectField label="Cliente" value={form.client_id} onChange={(v) => set("client_id", v)} options={clients.map((c) => [c.id, c.name])} placeholder="Selecione" />
       <SelectField label="Contrato" value={form.contract_id} onChange={(v) => set("contract_id", v)} options={contractOptions.map((c) => [c.id, c.code ? c.code + " — " + c.name : c.name])} placeholder={form.client_id ? "Selecione" : "Todos os contratos"} />
-      <Field label="Estado" value={form.state} onChange={(v) => set("state", v)} />
-      <Field label="Cidade" value={form.city} onChange={(v) => set("city", v)} />
+      <Field label="Origem" value={form.origin} onChange={(v) => set("origin", v)} />
+      <Field label="Cidade de destino" value={form.city} onChange={(v) => set("city", v)} />
+      <Field label="Estado de destino" value={form.state} onChange={(v) => set("state", v)} />
+      <Field label="Endereço da obra" value={form.job_site_address} onChange={(v) => set("job_site_address", v)} maxLength={240} />
       <Field label="Gestor" value={form.manager_name} onChange={(v) => set("manager_name", v)} />
       <Field label="Data inicial" type="date" value={form.start_date} onChange={(v) => set("start_date", v)} required />
       <Field label="Data final" type="date" value={form.end_date} onChange={(v) => set("end_date", v)} required />
@@ -675,7 +695,14 @@ function RequestModal({ clients, contracts, collaborators, onClose, onSave }) {
     <div className="form-section"><b>Colaboradores da OS</b><div className="collaborator-picker">
       {collaborators.length ? collaborators.map((p) => <label key={p.id} className={form.collaborator_ids.includes(p.id) ? "person-option selected" : "person-option"}><input type="checkbox" checked={form.collaborator_ids.includes(p.id)} onChange={() => toggleCollaborator(p.id)} /><span><b>{p.name}</b><small>{p.sector || "Sem setor"}{p.uf ? " · " + p.uf : ""}</small></span></label>) : <small className="helper">Cadastre colaboradores antes de associá-los à OS.</small>}
     </div></div>
-    <div className="form-section"><b>Serviços da viagem</b><small className="helper">Depois de criar a OS, use “Compor OS” em Custos para registrar passagens, hospedagem, veículo, refeições, lavanderia e Uber.</small></div>
+    <div className="form-section"><b>Serviços e necessidades</b><div className="request-options">
+      <CheckField label="Cotar hotel" checked={form.hotel_quote_requested} onChange={(v) => set("hotel_quote_requested", v)} />
+      <CheckField label="Cotar locação de veículo" checked={form.vehicle_quote_requested} onChange={(v) => set("vehicle_quote_requested", v)} />
+      <CheckField label="Pagamento de refeição extra" checked={form.meal_extra_payment} onChange={(v) => set("meal_extra_payment", v)} />
+      <CheckField label="Utilização de táxi / Uber" checked={form.taxi_uber_requested} onChange={(v) => set("taxi_uber_requested", v)} />
+      <CheckField label="Empréstimo de notebook" checked={form.notebook_loan_requested} onChange={(v) => set("notebook_loan_requested", v)} />
+    </div><small className="helper">Essas opções registram necessidades da solicitação. O lançamento de custos continua sendo feito na composição da OS.</small></div>
+    <div className="form-section"><SelectField label="Previsão de férias próximo à viagem" value={form.vacation_status} onChange={(v) => set("vacation_status", v)} options={[["pending", "Verificar com o RH"], ["yes", "Sim"], ["no", "Não"]]} placeholder="Selecione" /></div>
     <div className="modal-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary" disabled={busy}>{busy ? "Salvando..." : "Salvar rascunho"}</button></div>
   </form></ModalShell>;
 }
@@ -739,6 +766,10 @@ function ModalShell({ title, onClose, children }) {
 
 function Field({ label, value = "", onChange, type = "text", required = false, disabled = false, maxLength, accept, min, step }) {
   return <label className="field"><span>{label}{required ? " *" : ""}</span><input type={type} {...(type === "file" ? { accept, onChange: e => onChange?.(e.target.files) } : { value, onChange: e => onChange?.(e.target.value) })} required={required} disabled={disabled} maxLength={maxLength} min={min} step={step} /></label>;
+}
+
+function CheckField({ label, checked, onChange }) {
+  return <label className="request-check"><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /><span>{label}</span></label>;
 }
 
 function SelectField({ label, value, onChange, options, placeholder }) {

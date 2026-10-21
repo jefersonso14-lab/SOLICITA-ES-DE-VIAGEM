@@ -21,3 +21,15 @@
 .dossier-people .badge{width:max-content}
 .skip-link{position:fixed;z-index:1000;top:8px;left:8px;transform:translateY(-150%);background:#fff;color:#111;padding:10px 14px;border:2px solid var(--red);border-radius:6px;font-weight:700}.skip-link:focus{transform:translateY(0)}
 .main:focus{outline:none}
+.request-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0}
+.request-check{display:flex;align-items:flex-start;gap:10px;min-height:42px;border:1px solid #e5e5e5;border-radius:8px;padding:10px;cursor:pointer;background:#fff;font-size:12px}
+.request-check input{margin:2px 0 0;accent-color:var(--red)}
+.request-check:focus-within{outline:2px solid var(--red);outline-offset:2px}
+.request-detail-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0}
+.request-detail-grid>div{min-width:0;border:1px solid #eee;border-radius:8px;padding:10px}
+.request-detail-grid small{display:block;color:var(--muted)}
+.request-detail-grid b{display:block;margin-top:4px;font-size:12px;overflow-wrap:anywhere}
+.request-options-summary{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.request-option{border:1px solid #ddd;border-radius:999px;padding:6px 10px;color:#555;font-size:11px}
+.request-option.requested{border-color:var(--red);background:#fff5f6;color:#8b001a;font-weight:700}
+@media(max-width:700px){.request-options,.request-detail-grid{grid-template-columns:1fr}}

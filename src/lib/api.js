@@ -79,7 +79,7 @@ export async function createCollaborator(payload) {
 
 export async function listTravelRequests() {
   const { data, error } = await requireSupabase().from("travel_requests")
-    .select("id,os,state,city,manager_name,start_date,end_date,days,status,created_at,client:clients(name)")
+    .select("id,os,state,city,origin,job_site_address,manager_name,hotel_quote_requested,vehicle_quote_requested,meal_extra_payment,taxi_uber_requested,notebook_loan_requested,vacation_status,start_date,end_date,days,status,created_at,client:clients(name)")
     .order("created_at", { ascending: false });
   if (error) throw error;
   return data || [];
@@ -231,11 +231,19 @@ export async function createTravelRequest(payload) {
     contract_id: payload.contract_id || null,
     state: payload.state || null,
     city: payload.city || null,
+    origin: payload.origin || null,
+    job_site_address: payload.job_site_address || null,
     manager_name: payload.manager_name || null,
+    hotel_quote_requested: Boolean(payload.hotel_quote_requested),
+    vehicle_quote_requested: Boolean(payload.vehicle_quote_requested),
+    meal_extra_payment: Boolean(payload.meal_extra_payment),
+    taxi_uber_requested: Boolean(payload.taxi_uber_requested),
+    notebook_loan_requested: Boolean(payload.notebook_loan_requested),
+    vacation_status: payload.vacation_status || "pending",
     start_date: payload.start_date,
     end_date: payload.end_date,
     status: "draft"
-  }).select("id,os,state,city,manager_name,start_date,end_date,days,status,created_at").single();
+  }).select("id,os,state,city,origin,job_site_address,manager_name,hotel_quote_requested,vehicle_quote_requested,meal_extra_payment,taxi_uber_requested,notebook_loan_requested,vacation_status,start_date,end_date,days,status,created_at").single();
 
   if (error) throw error;
 
