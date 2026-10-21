@@ -10,7 +10,7 @@ PDF.js extrai texto de PDF e SheetJS lê planilhas no navegador. Quando o PDF n�
 
 ## Validação e custos
 
-O estado `extracted` indica dados extraídos aguardando conferência. Valor, data, fornecedor, número, CPF/CNPJ, categoria, colaborador e OS são mostrados para correção. Extração ou correção não cria custo. O gestor precisa confirmar um valor positivo. A função `confirm_attachment_cost` confirma os dados, insere o custo e registra o custo em `attachments.cost_id` em uma única transação. Uma repetição da confirmação devolve o custo já vinculado. A tabela `attachment_extraction_reviews` mantém responsável, data, ação, dados e custo vinculado.
+O estado `extracted` indica dados extraídos aguardando conferência. Valor, data, fornecedor, número, CPF/CNPJ, categoria, colaborador e OS são mostrados para correção. Extração ou correção não cria custo. O gestor precisa confirmar um valor positivo. A função `confirm_attachment_cost` confirma os dados, insere o custo e registra o custo em `attachments.cost_id` em uma única transação. Quando um colaborador é informado, o banco verifica que ele está vinculado à mesma OS do anexo e rejeita associações inválidas. Uma repetição da confirmação devolve o custo já vinculado. A tabela `attachment_extraction_reviews` mantém responsável, data, ação, dados e custo vinculado.
 
 ## Dossiê e relatórios
 

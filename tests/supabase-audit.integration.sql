@@ -180,7 +180,35 @@ do $$
 declare
   v_first uuid;
   v_repeated uuid;
+  v_invalid_collaborator_denied boolean := false;
+  v_unlinked_collaborator_denied boolean := false;
 begin
+  begin
+    perform public.confirm_attachment_cost(
+      '00000000-0000-4000-8000-000000000075',
+      '{"amount":50,"category":"hotel","collaborator_id":"not-a-uuid"}'::jsonb
+    );
+  exception when others then
+    if sqlerrm <> 'Identificador do colaborador inválido.' then raise; end if;
+    v_invalid_collaborator_denied := true;
+  end;
+  if not v_invalid_collaborator_denied then
+    raise exception 'confirmation accepted an invalid collaborator identifier';
+  end if;
+
+  begin
+    perform public.confirm_attachment_cost(
+      '00000000-0000-4000-8000-000000000075',
+      '{"amount":50,"category":"hotel","collaborator_id":"00000000-0000-4000-8000-000000000076"}'::jsonb
+    );
+  exception when others then
+    if sqlerrm <> 'O colaborador informado não pertence à OS do anexo.' then raise; end if;
+    v_unlinked_collaborator_denied := true;
+  end;
+  if not v_unlinked_collaborator_denied then
+    raise exception 'confirmation accepted a collaborator outside the OS';
+  end if;
+
   v_first := public.confirm_attachment_cost(
     '00000000-0000-4000-8000-000000000075',
     '{"amount":125.75,"date":"2026-10-07","category":"hotel","supplier":"Hotel teste","document_number":"NF-TESTE"}'::jsonb
