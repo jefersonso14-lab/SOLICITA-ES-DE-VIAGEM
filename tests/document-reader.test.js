@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isSupportedDocument, parseDocumentFields } from "../src/lib/document-reader.js";
+import * as XLSX from "xlsx";
+import { isSupportedDocument, parseDocumentFields, readDocument } from "../src/lib/document-reader.js";
 import { buildCostComposition } from "../src/lib/cost-composition.js";
 import { auditActionLabel, filterAuditEvents, summarizeAuditEvent } from "../src/lib/audit.js";
 
@@ -35,6 +36,31 @@ test("recognizes expense categories and OS collaborators when named in the docum
   assert.equal(meal.collaborator, "João da Silva");
   assert.equal(meal.os, "OS-2026-08");
   assert.equal(toll.category, "toll");
+});
+
+test("reads CSV, XLS, and XLSX attachments into reviewable fields", async () => {
+  const text = "Fornecedor: Hotel Central; Nota Fiscal: 12345; CNPJ 12.345.678/0001-90; Data 06/10/2026; Total R$ 1.234,50; hospedagem; Ana Souza";
+  const context = { os: "OS-VALIDACAO-1", collaborators: [{ name: "Ana Souza" }] };
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([[text]]), "Recibo");
+  const formats = [
+    [new File([text], "recibo.csv", { type: "text/csv" }), "text/csv"],
+    [new File([XLSX.write(workbook, { bookType: "xls", type: "array" })], "recibo.xls"), "xls"],
+    [new File([XLSX.write(workbook, { bookType: "xlsx", type: "array" })], "recibo.xlsx"), "xlsx"]
+  ];
+
+  for (const [file, format] of formats) {
+    const result = await readDocument(file, context);
+    assert.equal(result.method, "text", format);
+    assert.equal(result.fields.amount, 1234.5, format);
+    assert.equal(result.fields.date, "2026-10-06", format);
+    assert.equal(result.fields.supplier, "Hotel Central", format);
+    assert.equal(result.fields.document_number, "12345", format);
+    assert.equal(result.fields.tax_id, "12.345.678/0001-90", format);
+    assert.equal(result.fields.category, "hotel", format);
+    assert.equal(result.fields.collaborator, "Ana Souza", format);
+    assert.equal(result.fields.os, context.os, format);
+  }
 });
 
 test("does not count consolidated service costs twice", () => {
