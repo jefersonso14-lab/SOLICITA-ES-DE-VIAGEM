@@ -108,6 +108,16 @@ function App() {
   return <AuthenticatedApp profile={profile} />;
 }
 
+function Brand({ className = "" }) {
+  return <div className={`brand ${className}`.trim()}>
+    <span className="brand-symbol" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none">
+      <path d="M7 7 16 13 25 6M7 7 8 25 16 13 24 25M8 25l17-19M16 13l9 12" />
+      <circle cx="7" cy="7" r="2.3" /><circle cx="25" cy="6" r="2.3" /><circle cx="16" cy="13" r="2.3" /><circle cx="8" cy="25" r="2.3" /><circle cx="24" cy="25" r="2.3" />
+    </svg></span>
+    <span className="brand-copy"><strong><span className="brand-word">BROAD</span><span className="brand-accent">TEC</span></strong><small>GESTÃO DE VIAGENS</small></span>
+  </div>;
+}
+
 function LoginScreen({ configured, adminAccess }) {
   const [mode, setMode] = useState("signin");
   const [fullName, setFullName] = useState("");
@@ -148,7 +158,7 @@ function LoginScreen({ configured, adminAccess }) {
   }
 
   return <div className="login-screen"><div className="login-card">
-    <div className="brand login-brand"><div className="brand-mark">B</div><div><strong>PLATAFORMA</strong><span>Solicitação de Viagens</span></div></div>
+    <Brand className="login-brand" />
     <span className="eyebrow">{mode === "forgot" ? "RECUPERAÇÃO DE ACESSO" : adminAccess ? "ÁREA ADMINISTRATIVA" : mode === "signup" ? "NOVO CADASTRO" : "ACESSO RESTRITO"}</span>
     <h1>{mode === "forgot" ? "Recuperar senha" : adminAccess ? "Acesso administrativo" : mode === "signup" ? "Criar cadastro" : "Entrar na plataforma"}</h1>
     <p className="login-subtitle">{mode === "forgot" ? "Informe o e-mail da sua conta para receber o link de redefinição." : adminAccess ? "Entre com a conta que recebeu o perfil de administrador." : mode === "signup" ? "Crie sua conta para solicitar e acompanhar viagens." : "Use seu e-mail e senha cadastrados."}</p>
@@ -195,13 +205,13 @@ function PasswordRecoveryScreen({ hasSession, onComplete }) {
 
   const appUrl = new URL(import.meta.env.BASE_URL, window.location.origin);
   if (success) return <div className="login-screen"><section className="login-card" aria-labelledby="recovery-success-title">
-    <span className="eyebrow">RECUPERAÇÃO DE ACESSO</span><h1 id="recovery-success-title">Senha atualizada</h1>
+    <Brand className="login-brand" /><span className="eyebrow">RECUPERAÇÃO DE ACESSO</span><h1 id="recovery-success-title">Senha atualizada</h1>
     <div className="notice success" role="status">{success}</div>
     <button type="button" className="primary full" onClick={onComplete}>Continuar para a plataforma</button>
   </section></div>;
 
   return <div className="login-screen"><section className="login-card" aria-labelledby="recovery-title">
-    <div className="brand login-brand"><div className="brand-mark">B</div><div><strong>PLATAFORMA</strong><span>Solicitação de Viagens</span></div></div>
+    <Brand className="login-brand" />
     <span className="eyebrow">RECUPERAÇÃO DE ACESSO</span><h1 id="recovery-title">Definir nova senha</h1>
     {hasSession ? <>
       <p className="login-subtitle">Escolha uma senha com pelo menos 8 caracteres.</p>
@@ -221,6 +231,7 @@ function PasswordRecoveryScreen({ hasSession, onComplete }) {
 function AdminAccessDenied() {
   const appUrl = new URL(import.meta.env.BASE_URL, window.location.origin);
   return <div className="screen-center"><section className="login-card admin-denied" aria-labelledby="admin-denied-title">
+    <Brand className="login-brand" />
     <span className="eyebrow">ACESSO RESTRITO</span><h1 id="admin-denied-title">Perfil administrativo necessário</h1>
     <p className="login-subtitle">Esta conta não possui um perfil de administrador ativo. O link de acesso não altera permissões.</p>
     <a className="primary auth-return" href={appUrl.href}>Ir para o acesso geral</a>
@@ -323,7 +334,7 @@ function AuthenticatedApp({ profile }) {
   return <div className="app">
     <a className="skip-link" href="#main-content">Pular para o conteúdo</a>
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark">B</div><div><strong>PLATAFORMA</strong><span>Solicitação de Viagens</span></div></div>
+      <Brand />
       <nav aria-label="Navegação principal">
         {menu.map(([id, label], i) => <button key={id} aria-current={active === id ? "page" : undefined} className={active === id ? "nav-item active" : "nav-item"} onClick={() => setActive(id)}>
           <span className="nav-icon" aria-hidden="true">{["⌂", "▣", "♙", "R$", "▤", "□", "▧", "◷"][i]}</span>{label}

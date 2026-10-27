@@ -1,4 +1,4 @@
-:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#171717;background:#f6f6f6;font-synthesis:none;--red:#b00020;--black:#111;--muted:#6b6b6b;--line:#e5e5e5;--amber:#a66a00;--blue:#2457a6}
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#20222b;background:#f4f5f8;font-synthesis:none;--red:#c52e49;--black:#090c14;--muted:#666c78;--line:#e1e3e8;--amber:#966000;--blue:#315b96;--navy:#0d111b;--panel-dark:#121722;--text-light:#f5f6f8}
 *{box-sizing:border-box}body{margin:0;background:#f6f6f6}.app{min-height:100vh;display:flex}.screen-center{min-height:100vh;display:grid;place-items:center;background:#f6f6f6}.loading-card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:22px 28px;color:var(--muted)}
 .login-screen{min-height:100vh;display:grid;place-items:center;padding:24px;background:#111}.login-card{width:min(430px,100%);background:#fff;border-radius:14px;padding:32px;box-shadow:0 24px 70px #0006}.login-brand{padding:0 0 28px}.login-card h1{font-size:25px;margin:8px 0}.login-subtitle{color:var(--muted);font-size:13px;margin:0 0 22px}.login-form{display:grid;gap:14px}.full{width:100%}.notice.success{background:#edf6ef;color:#276738;border:1px solid #c4dfc9}.auth-links{display:flex;justify-content:space-between;gap:12px;margin-top:18px;flex-wrap:wrap}.auth-link{border:0;padding:0;background:none;color:var(--red);font:inherit;font-size:12px;font-weight:750;text-decoration:underline;text-underline-offset:3px;cursor:pointer}.auth-link:focus-visible,.auth-return:focus-visible{outline:3px solid #b00020;outline-offset:3px}.auth-footnote{font-size:11px;line-height:1.5;color:var(--muted);margin:18px 0 0}.admin-denied{width:min(460px,calc(100% - 32px))}.auth-return{display:inline-block;text-decoration:none;text-align:center;margin-top:8px}
 .notice{border-radius:7px;padding:11px 13px;font-size:12px;margin:14px 0}.notice.error{background:#fbecee;color:#7d0017;border:1px solid #f0c4cc}
@@ -33,4 +33,64 @@
 .request-option{border:1px solid #ddd;border-radius:999px;padding:6px 10px;color:#555;font-size:11px}
 .request-option.requested{border-color:var(--red);background:#fff5f6;color:#8b001a;font-weight:700}
 @media(max-width:700px){.request-options,.request-detail-grid{grid-template-columns:1fr}}
+
+/* Broadtec identity: deep graphite, wired grid motif, and precise crimson accents. */
+body{background:#f3f4f7;color:#20222b}
+.screen-center{background:#090c14}
+.loading-card{background:#121722;border-color:#303542;color:#eceef2}
+.login-screen{position:relative;isolation:isolate;overflow:hidden;background-color:#090c14;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px),radial-gradient(ellipse at 78% 28%,rgba(197,46,73,.13),transparent 42%);background-size:40px 40px,40px 40px,auto}
+.login-screen::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:linear-gradient(108deg,transparent 49.85%,rgba(197,46,73,.12) 50%,transparent 50.15%),linear-gradient(17deg,transparent 67%,rgba(255,255,255,.045) 67.1%,transparent 67.2%)}
+.login-card{position:relative;width:min(460px,100%);color:#f5f6f8;background:rgba(17,21,31,.97);border:1px solid #2a2f3a;border-radius:8px;box-shadow:0 30px 90px #0009}
+.login-card h1{color:#f5f6f8}
+.login-subtitle{color:#aeb3bd}
+.login-card .field span{color:#e8eaf0}
+.login-card .field input{min-height:44px;color:#f7f8fa;background:#0b0f17;border-color:#343a47}
+.login-card .field input:focus{outline:2px solid #c52e49;outline-offset:1px;border-color:#c52e49}
+.login-card .notice.success{background:#15231e;color:#d4f0df;border-color:#315543}
+.auth-footnote{color:#aeb3bd}
+.auth-link{color:#f06a80}
+.auth-link:hover{color:#fff}
+.auth-link:focus-visible,.auth-return:focus-visible{outline-color:#ff8799}
+.auth-return{color:#fff}
+.brand{gap:10px}
+.brand-symbol{width:33px;height:33px;flex:0 0 33px;display:grid;place-items:center;background:#151923;border:1px solid #313643;border-radius:6px}
+.brand-symbol svg{display:block;width:26px;height:26px;stroke:#d83a56;stroke-width:1.35;stroke-linecap:round;stroke-linejoin:round}
+.brand-symbol circle{fill:#f0f1f4;stroke:#d83a56;stroke-width:1}
+.brand-copy{min-width:0}
+.brand .brand-copy strong{display:flex;align-items:baseline;font-size:17px;line-height:1;letter-spacing:.1em;font-weight:800}
+.brand .brand-copy strong span{display:inline;font-size:inherit;letter-spacing:inherit}
+.brand-word{color:#f2f3f6}
+.brand .brand-copy .brand-accent{color:#df3b58}
+.brand .brand-copy small{display:block;margin-top:5px;color:#a6aab4;font-size:8px;font-weight:700;letter-spacing:.17em;white-space:nowrap}
+.login-brand{padding:0 0 28px}
+.sidebar{background:#090c14;border-right:1px solid #252a35}
+.sidebar .brand{padding-bottom:30px}
+.nav-item{color:#adb2bc;border-radius:5px}
+.nav-item:hover{background:#171b25;color:#fff}
+.nav-item.active{background:linear-gradient(90deg,rgba(197,46,73,.2),rgba(197,46,73,.06));color:#fff;box-shadow:inset 3px 0 #d63855}
+.nav-icon{color:#d84962}
+.sidebar-footer{color:#969ca8}
+.status-dot{color:#d63855}
+.main{background:#f3f4f7}
+.topbar{height:82px;background:#0d111b;color:#f4f5f8;border-bottom:1px solid #252a35}
+.topbar h1{color:#f4f5f8;font-size:22px;font-weight:650}
+.topbar .eyebrow{color:#e15169}
+.role-label{color:#c2c6cf}
+.icon-button{color:#f3f4f7;border-radius:5px}
+.icon-button:hover{background:#262b37;color:#fff}
+.avatar{background:#202633;border:1px solid #3a4050;color:#fff}
+.content{background:#f3f4f7}
+.global-notice{border-color:#dcdfe5;border-left-color:#c52e49;background:#fff}
+.primary{background:#c52e49;border-radius:4px;letter-spacing:.015em}
+.primary:hover{background:#ad223d;filter:none}
+.secondary{border-color:#c9cdd5;border-radius:4px;color:#252833}
+.secondary:hover{border-color:#c52e49;color:#9d1f38}
+.stat,.panel{border-color:#e0e2e8;border-radius:7px;box-shadow:0 5px 18px rgba(13,17,27,.035)}
+.panel{padding:21px}
+.search{border-color:#d7dae1;border-radius:5px;background:#fff}
+.search:focus-within{border-color:#c52e49;box-shadow:0 0 0 2px rgba(197,46,73,.12)}
+.field input,.field select{border-radius:5px}
+.field input:focus,.field select:focus{outline:2px solid rgba(197,46,73,.3);border-color:#c52e49}
+.modal{border:1px solid #e0e2e8;border-radius:8px}
+@media(max-width:900px){.sidebar .brand{justify-content:center;padding-left:0;padding-right:0}.sidebar .brand-copy{display:none}}
 
