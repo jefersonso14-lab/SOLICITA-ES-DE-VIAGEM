@@ -48,3 +48,11 @@ O GitHub Actions instala com lockfile congelado e executa `pnpm test` e `pnpm ru
 
 ## Publicação e acesso
 O GitHub Pages está habilitado com origem **GitHub Actions**. O workflow `.github/workflows/deploy-pages.yml` publica o frontend após cada push em `main`. O endereço do projeto é https://jefersonso14-lab.github.io/SOLICITA-ES-DE-VIAGEM/. O acesso aos dados continua exigindo login e políticas RLS; o build usa apenas a chave publicável do Supabase.
+
+### Cadastro e acesso administrativo
+- A tela inicial oferece cadastro com nome, e-mail e senha. Cadastros públicos recebem somente o papel `requester`; a pessoa deve confirmar o e-mail conforme a configuração de autenticação do Supabase.
+- Para que o link de confirmação retorne ao aplicativo, configure o **Site URL** do Supabase para `https://jefersonso14-lab.github.io/SOLICITA-ES-DE-VIAGEM/` e inclua esse endereço na lista de **Redirect URLs** permitidos. O cadastro direciona a confirmação para esse endereço.
+- Entrada geral: https://jefersonso14-lab.github.io/SOLICITA-ES-DE-VIAGEM/
+- Entrada administrativa: https://jefersonso14-lab.github.io/SOLICITA-ES-DE-VIAGEM/?acesso=admin
+- A rota administrativa exige um perfil `admin` ativo; o endereço não concede privilégios. A primeira conta de administrador deve ser promovida por um administrador autorizado no banco depois que o usuário se cadastrar e confirmar seu e-mail. O aplicativo não permite que um usuário escolha o próprio papel.
+

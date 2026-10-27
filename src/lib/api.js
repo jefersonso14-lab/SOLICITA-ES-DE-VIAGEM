@@ -11,6 +11,14 @@ export async function signIn(email, password) {
   return requireSupabase().auth.signInWithPassword({ email, password });
 }
 
+export async function signUp(email, password, fullName, emailRedirectTo) {
+  return requireSupabase().auth.signUp({
+    email,
+    password,
+    options: { data: { full_name: fullName }, emailRedirectTo }
+  });
+}
+
 export async function signOut() {
   if (!supabase) return;
   return supabase.auth.signOut();
@@ -409,3 +417,4 @@ export async function loadTravelDossier(travelRequestId) {
     ].sort((a, b) => new Date(b.date) - new Date(a.date))
   };
 }
+

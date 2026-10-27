@@ -24,6 +24,7 @@ import {
   confirmAttachmentCost,
   loadTravelDossier,
   signIn,
+  signUp,
   signOut
 } from "./lib/api";
 import { supabase } from "./lib/supabase";
@@ -52,45 +53,81 @@ const statusMap = {
 };
 
 function App() {
+  const adminAccess = new URLSearchParams(window.location.search).get("acesso") === "admin";
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [profileLoading, setProfileLoading] = useState(true);
 
   useEffect(() => {
     if (!supabase) { setLoading(false); return; }
     let mounted = true;
     const load = async () => {
-      const { data } = await supabase.auth.getSession();
-      if (mounted && data.session) {
-        setSession(data.session);
-        try { setProfile(await ensureRequesterProfile()); } catch (error) { console.error(error); }
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        if (mounted && data.session) {
+          setSession(data.session);
+          setProfile(await ensureRequesterProfile());
+        }
+      } catch (error) {
+        console.error(error);
+        if (mounted) setProfile(null);
+      } finally {
+        if (mounted) { setProfileLoading(false); setLoading(false); }
       }
-      if (mounted) setLoading(false);
     };
     load();
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
-      if (!nextSession) { setProfile(null); return; }
-      ensureRequesterProfile().then(setProfile).catch((error) => console.error(error));
+      if (!nextSession) { setProfile(null); setProfileLoading(false); return; }
+      setProfileLoading(true);
+      // Defer Supabase calls until its synchronous auth callback has released its lock.
+      window.setTimeout(() => {
+        ensureRequesterProfile()
+          .then((nextProfile) => { if (mounted) setProfile(nextProfile); })
+          .catch((error) => { console.error(error); if (mounted) setProfile(null); })
+          .finally(() => { if (mounted) setProfileLoading(false); });
+      }, 0);
     });
     return () => { mounted = false; listener.subscription.unsubscribe(); };
   }, []);
 
   if (loading) return <div className="screen-center"><div className="loading-card">Carregando plataforma...</div></div>;
-  if (!session) return <LoginScreen configured={Boolean(supabase)} />;
+  if (!session) return <LoginScreen configured={Boolean(supabase)} adminAccess={adminAccess} />;
+  if (adminAccess && profileLoading) return <div className="screen-center"><div className="loading-card">Verificando acesso administrativo...</div></div>;
+  if (adminAccess && (profile?.role !== "admin" || profile?.active !== true)) return <AdminAccessDenied />;
   return <AuthenticatedApp profile={profile} />;
 }
 
-function LoginScreen({ configured }) {
+function LoginScreen({ configured, adminAccess }) {
+  const [mode, setMode] = useState("signin");
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const appUrl = new URL(import.meta.env.BASE_URL, window.location.origin);
+  const adminUrl = new URL(appUrl);
+  adminUrl.searchParams.set("acesso", "admin");
 
   async function handleSubmit(event) {
-    event.preventDefault(); setError(""); setBusy(true);
+    event.preventDefault(); setError(""); setSuccess(""); setBusy(true);
     try {
-      const result = await signIn(email.trim(), password);
+      if (mode === "signup") {
+        if (password.length < 8) throw new Error("A senha deve ter pelo menos 8 caracteres.");
+        if (password !== passwordConfirmation) throw new Error("As senhas não conferem.");
+        const result = await signUp(email.trim().toLowerCase(), password, fullName.trim(), appUrl.href);
+        if (result.error) throw result.error;
+        setPassword("");
+        setPasswordConfirmation("");
+        setMode("signin");
+        setSuccess("Cadastro iniciado. Confira seu e-mail para confirmar a conta e depois entre na plataforma.");
+        return;
+      }
+      const result = await signIn(email.trim().toLowerCase(), password);
       if (result.error) throw result.error;
     } catch (err) { setError(err.message || "Não foi possível entrar."); }
     finally { setBusy(false); }
@@ -98,16 +135,34 @@ function LoginScreen({ configured }) {
 
   return <div className="login-screen"><div className="login-card">
     <div className="brand login-brand"><div className="brand-mark">B</div><div><strong>PLATAFORMA</strong><span>Solicitação de Viagens</span></div></div>
-    <span className="eyebrow">ACESSO RESTRITO</span><h1>Entrar na plataforma</h1>
-    <p className="login-subtitle">Use seu e-mail e senha cadastrados.</p>
+    <span className="eyebrow">{adminAccess ? "ÁREA ADMINISTRATIVA" : mode === "signup" ? "NOVO CADASTRO" : "ACESSO RESTRITO"}</span>
+    <h1>{adminAccess ? "Acesso administrativo" : mode === "signup" ? "Criar cadastro" : "Entrar na plataforma"}</h1>
+    <p className="login-subtitle">{adminAccess ? "Entre com a conta que recebeu o perfil de administrador." : mode === "signup" ? "Crie sua conta para solicitar e acompanhar viagens." : "Use seu e-mail e senha cadastrados."}</p>
     {!configured && <div className="notice error">Configure VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY no ambiente da aplicação.</div>}
-    {error && <div className="notice error">{error}</div>}
+    {error && <div className="notice error" role="alert">{error}</div>}
+    {success && <div className="notice success" role="status">{success}</div>}
     <form onSubmit={handleSubmit} className="login-form">
-      <Field label="E-mail" value={email} onChange={setEmail} type="email" required />
-      <Field label="Senha" value={password} onChange={setPassword} type="password" required />
-      <button className="primary full" disabled={busy || !configured}>{busy ? "Entrando..." : "Entrar"}</button>
+      {mode === "signup" && <Field label="Nome completo" value={fullName} onChange={setFullName} required maxLength={120} autoComplete="name" />}
+      <Field label="E-mail" value={email} onChange={setEmail} type="email" required autoComplete="email" />
+      <Field label="Senha" value={password} onChange={setPassword} type="password" required minLength={8} autoComplete={mode === "signup" ? "new-password" : "current-password"} />
+      {mode === "signup" && <Field label="Confirmar senha" value={passwordConfirmation} onChange={setPasswordConfirmation} type="password" required minLength={8} autoComplete="new-password" />}
+      <button className="primary full" disabled={busy || !configured}>{busy ? (mode === "signup" ? "Criando cadastro..." : "Entrando...") : mode === "signup" ? "Criar cadastro" : "Entrar"}</button>
     </form>
+    <div className="auth-links">
+      {!adminAccess && <button type="button" className="auth-link" onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setError(""); setSuccess(""); }}>{mode === "signup" ? "Já tenho cadastro" : "Criar cadastro"}</button>}
+      {adminAccess ? <a className="auth-link" href={appUrl.href}>Voltar ao acesso geral</a> : <a className="auth-link" href={adminUrl.href}>Acesso administrativo</a>}
+    </div>
+    {mode === "signup" && <p className="auth-footnote">Cadastros novos começam como solicitante. O nível de administrador é concedido separadamente.</p>}
   </div></div>;
+}
+
+function AdminAccessDenied() {
+  const appUrl = new URL(import.meta.env.BASE_URL, window.location.origin);
+  return <div className="screen-center"><section className="login-card admin-denied" aria-labelledby="admin-denied-title">
+    <span className="eyebrow">ACESSO RESTRITO</span><h1 id="admin-denied-title">Perfil administrativo necessário</h1>
+    <p className="login-subtitle">Esta conta não possui um perfil de administrador ativo. O link de acesso não altera permissões.</p>
+    <a className="primary auth-return" href={appUrl.href}>Ir para o acesso geral</a>
+  </section></div>;
 }
 
 function AuthenticatedApp({ profile }) {
@@ -764,8 +819,8 @@ function ModalShell({ title, onClose, children }) {
   return <div className="overlay"><div ref={modalRef} className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" tabIndex={-1} onKeyDown={handleKeyDown}><div className="modal-head"><div><span className="eyebrow">CADASTRO</span><h2 id="modal-title">{title}</h2></div><button type="button" className="close" onClick={onClose} aria-label="Fechar">×</button></div>{children}</div></div>;
 }
 
-function Field({ label, value = "", onChange, type = "text", required = false, disabled = false, maxLength, accept, min, step }) {
-  return <label className="field"><span>{label}{required ? " *" : ""}</span><input type={type} {...(type === "file" ? { accept, onChange: e => onChange?.(e.target.files) } : { value, onChange: e => onChange?.(e.target.value) })} required={required} disabled={disabled} maxLength={maxLength} min={min} step={step} /></label>;
+function Field({ label, value = "", onChange, type = "text", required = false, disabled = false, maxLength, minLength, autoComplete, accept, min, step }) {
+  return <label className="field"><span>{label}{required ? " *" : ""}</span><input type={type} {...(type === "file" ? { accept, onChange: e => onChange?.(e.target.files) } : { value, onChange: e => onChange?.(e.target.value) })} required={required} disabled={disabled} maxLength={maxLength} minLength={minLength} autoComplete={autoComplete} min={min} step={step} /></label>;
 }
 
 function CheckField({ label, checked, onChange }) {
@@ -783,3 +838,4 @@ function formatDate(value) { if (!value) return "—"; const [year, month, day] 
 function money(value) { return Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
 
 createRoot(document.getElementById("root")).render(<App />);
+
