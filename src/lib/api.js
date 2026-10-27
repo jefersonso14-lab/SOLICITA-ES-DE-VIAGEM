@@ -19,6 +19,14 @@ export async function signUp(email, password, fullName, emailRedirectTo) {
   });
 }
 
+export async function requestPasswordReset(email, redirectTo) {
+  return requireSupabase().auth.resetPasswordForEmail(email, { redirectTo });
+}
+
+export async function updateAccountPassword(password) {
+  return requireSupabase().auth.updateUser({ password });
+}
+
 export async function signOut() {
   if (!supabase) return;
   return supabase.auth.signOut();

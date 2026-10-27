@@ -51,6 +51,7 @@ O GitHub Pages está habilitado com origem **GitHub Actions**. O workflow `.gith
 
 ### Cadastro e acesso administrativo
 - A tela inicial oferece cadastro com nome, e-mail e senha. Cadastros públicos recebem somente o papel `requester`; a pessoa deve confirmar o e-mail conforme a configuração de autenticação do Supabase.
+- O link **Esqueci minha senha** envia uma solicitação de recuperação por e-mail. Ao abrir o link permitido, o usuário define uma nova senha no aplicativo; o sistema valida a sessão de recuperação e a confirmação da nova senha.
 - Para que o link de confirmação retorne ao aplicativo, configure o **Site URL** do Supabase para `https://jefersonso14-lab.github.io/SOLICITA-ES-DE-VIAGEM/` e inclua esse endereço na lista de **Redirect URLs** permitidos. O cadastro direciona a confirmação para esse endereço.
 - Entrada geral: https://jefersonso14-lab.github.io/SOLICITA-ES-DE-VIAGEM/
 - Entrada administrativa: https://jefersonso14-lab.github.io/SOLICITA-ES-DE-VIAGEM/?acesso=admin

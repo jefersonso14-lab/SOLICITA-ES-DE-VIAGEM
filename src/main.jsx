@@ -25,6 +25,8 @@ import {
   loadTravelDossier,
   signIn,
   signUp,
+  requestPasswordReset,
+  updateAccountPassword,
   signOut
 } from "./lib/api";
 import { supabase } from "./lib/supabase";
@@ -54,6 +56,7 @@ const statusMap = {
 
 function App() {
   const adminAccess = new URLSearchParams(window.location.search).get("acesso") === "admin";
+  const [passwordRecovery, setPasswordRecovery] = useState(isPasswordRecoveryRedirect);
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -78,7 +81,8 @@ function App() {
       }
     };
     load();
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (event === "PASSWORD_RECOVERY") setPasswordRecovery(true);
       setSession(nextSession);
       if (!nextSession) { setProfile(null); setProfileLoading(false); return; }
       setProfileLoading(true);
@@ -94,6 +98,10 @@ function App() {
   }, []);
 
   if (loading) return <div className="screen-center"><div className="loading-card">Carregando plataforma...</div></div>;
+  if (passwordRecovery) return <PasswordRecoveryScreen hasSession={Boolean(session)} onComplete={() => {
+    window.history.replaceState({}, "", new URL(import.meta.env.BASE_URL, window.location.origin).href);
+    setPasswordRecovery(false);
+  }} />;
   if (!session) return <LoginScreen configured={Boolean(supabase)} adminAccess={adminAccess} />;
   if (adminAccess && profileLoading) return <div className="screen-center"><div className="loading-card">Verificando acesso administrativo...</div></div>;
   if (adminAccess && (profile?.role !== "admin" || profile?.active !== true)) return <AdminAccessDenied />;
@@ -116,6 +124,12 @@ function LoginScreen({ configured, adminAccess }) {
   async function handleSubmit(event) {
     event.preventDefault(); setError(""); setSuccess(""); setBusy(true);
     try {
+      if (mode === "forgot") {
+        const result = await requestPasswordReset(email.trim().toLowerCase(), appUrl.href);
+        if (result.error) throw result.error;
+        setSuccess("Se este e-mail estiver cadastrado, enviaremos um link para redefinir a senha.");
+        return;
+      }
       if (mode === "signup") {
         if (password.length < 8) throw new Error("A senha deve ter pelo menos 8 caracteres.");
         if (password !== passwordConfirmation) throw new Error("As senhas não conferem.");
@@ -135,25 +149,73 @@ function LoginScreen({ configured, adminAccess }) {
 
   return <div className="login-screen"><div className="login-card">
     <div className="brand login-brand"><div className="brand-mark">B</div><div><strong>PLATAFORMA</strong><span>Solicitação de Viagens</span></div></div>
-    <span className="eyebrow">{adminAccess ? "ÁREA ADMINISTRATIVA" : mode === "signup" ? "NOVO CADASTRO" : "ACESSO RESTRITO"}</span>
-    <h1>{adminAccess ? "Acesso administrativo" : mode === "signup" ? "Criar cadastro" : "Entrar na plataforma"}</h1>
-    <p className="login-subtitle">{adminAccess ? "Entre com a conta que recebeu o perfil de administrador." : mode === "signup" ? "Crie sua conta para solicitar e acompanhar viagens." : "Use seu e-mail e senha cadastrados."}</p>
+    <span className="eyebrow">{mode === "forgot" ? "RECUPERAÇÃO DE ACESSO" : adminAccess ? "ÁREA ADMINISTRATIVA" : mode === "signup" ? "NOVO CADASTRO" : "ACESSO RESTRITO"}</span>
+    <h1>{mode === "forgot" ? "Recuperar senha" : adminAccess ? "Acesso administrativo" : mode === "signup" ? "Criar cadastro" : "Entrar na plataforma"}</h1>
+    <p className="login-subtitle">{mode === "forgot" ? "Informe o e-mail da sua conta para receber o link de redefinição." : adminAccess ? "Entre com a conta que recebeu o perfil de administrador." : mode === "signup" ? "Crie sua conta para solicitar e acompanhar viagens." : "Use seu e-mail e senha cadastrados."}</p>
     {!configured && <div className="notice error">Configure VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY no ambiente da aplicação.</div>}
     {error && <div className="notice error" role="alert">{error}</div>}
     {success && <div className="notice success" role="status">{success}</div>}
     <form onSubmit={handleSubmit} className="login-form">
       {mode === "signup" && <Field label="Nome completo" value={fullName} onChange={setFullName} required maxLength={120} autoComplete="name" />}
       <Field label="E-mail" value={email} onChange={setEmail} type="email" required autoComplete="email" />
-      <Field label="Senha" value={password} onChange={setPassword} type="password" required minLength={8} autoComplete={mode === "signup" ? "new-password" : "current-password"} />
+      {mode !== "forgot" && <Field label="Senha" value={password} onChange={setPassword} type="password" required minLength={8} autoComplete={mode === "signup" ? "new-password" : "current-password"} />}
       {mode === "signup" && <Field label="Confirmar senha" value={passwordConfirmation} onChange={setPasswordConfirmation} type="password" required minLength={8} autoComplete="new-password" />}
-      <button className="primary full" disabled={busy || !configured}>{busy ? (mode === "signup" ? "Criando cadastro..." : "Entrando...") : mode === "signup" ? "Criar cadastro" : "Entrar"}</button>
+      <button className="primary full" disabled={busy || !configured}>{busy ? (mode === "signup" ? "Criando cadastro..." : mode === "forgot" ? "Enviando link..." : "Entrando...") : mode === "signup" ? "Criar cadastro" : mode === "forgot" ? "Enviar link de recuperação" : "Entrar"}</button>
     </form>
     <div className="auth-links">
-      {!adminAccess && <button type="button" className="auth-link" onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setError(""); setSuccess(""); }}>{mode === "signup" ? "Já tenho cadastro" : "Criar cadastro"}</button>}
+      {mode === "signin" && <button type="button" className="auth-link" onClick={() => { setMode("forgot"); setError(""); setSuccess(""); }}>Esqueci minha senha</button>}
+      {mode === "forgot" && <button type="button" className="auth-link" onClick={() => { setMode("signin"); setError(""); setSuccess(""); }}>Voltar para entrar</button>}
+      {!adminAccess && mode !== "forgot" && <button type="button" className="auth-link" onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setError(""); setSuccess(""); }}>{mode === "signup" ? "Já tenho cadastro" : "Criar cadastro"}</button>}
       {adminAccess ? <a className="auth-link" href={appUrl.href}>Voltar ao acesso geral</a> : <a className="auth-link" href={adminUrl.href}>Acesso administrativo</a>}
     </div>
     {mode === "signup" && <p className="auth-footnote">Cadastros novos começam como solicitante. O nível de administrador é concedido separadamente.</p>}
   </div></div>;
+}
+
+function PasswordRecoveryScreen({ hasSession, onComplete }) {
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  async function handleSubmit(event) {
+    event.preventDefault(); setError(""); setSuccess("");
+    if (password.length < 8) { setError("A senha deve ter pelo menos 8 caracteres."); return; }
+    if (password !== confirmation) { setError("As senhas não conferem."); return; }
+    setBusy(true);
+    try {
+      const result = await updateAccountPassword(password);
+      if (result.error) throw result.error;
+      setPassword(""); setConfirmation("");
+      setSuccess("Senha atualizada com sucesso.");
+    } catch (err) { setError(err.message || "Não foi possível atualizar a senha."); }
+    finally { setBusy(false); }
+  }
+
+  const appUrl = new URL(import.meta.env.BASE_URL, window.location.origin);
+  if (success) return <div className="login-screen"><section className="login-card" aria-labelledby="recovery-success-title">
+    <span className="eyebrow">RECUPERAÇÃO DE ACESSO</span><h1 id="recovery-success-title">Senha atualizada</h1>
+    <div className="notice success" role="status">{success}</div>
+    <button type="button" className="primary full" onClick={onComplete}>Continuar para a plataforma</button>
+  </section></div>;
+
+  return <div className="login-screen"><section className="login-card" aria-labelledby="recovery-title">
+    <div className="brand login-brand"><div className="brand-mark">B</div><div><strong>PLATAFORMA</strong><span>Solicitação de Viagens</span></div></div>
+    <span className="eyebrow">RECUPERAÇÃO DE ACESSO</span><h1 id="recovery-title">Definir nova senha</h1>
+    {hasSession ? <>
+      <p className="login-subtitle">Escolha uma senha com pelo menos 8 caracteres.</p>
+      {error && <div className="notice error" role="alert">{error}</div>}
+      <form onSubmit={handleSubmit} className="login-form">
+        <Field label="Nova senha" value={password} onChange={setPassword} type="password" required minLength={8} autoComplete="new-password" />
+        <Field label="Confirmar nova senha" value={confirmation} onChange={setConfirmation} type="password" required minLength={8} autoComplete="new-password" />
+        <button className="primary full" disabled={busy}>{busy ? "Atualizando senha..." : "Salvar nova senha"}</button>
+      </form>
+    </> : <>
+      <p className="login-subtitle">Este link de recuperação expirou ou já foi usado. Solicite outro para continuar.</p>
+      <a className="primary auth-return" href={appUrl.href}>Voltar ao acesso</a>
+    </>}
+  </section></div>;
 }
 
 function AdminAccessDenied() {
@@ -163,6 +225,12 @@ function AdminAccessDenied() {
     <p className="login-subtitle">Esta conta não possui um perfil de administrador ativo. O link de acesso não altera permissões.</p>
     <a className="primary auth-return" href={appUrl.href}>Ir para o acesso geral</a>
   </section></div>;
+}
+
+function isPasswordRecoveryRedirect() {
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const searchParams = new URLSearchParams(window.location.search);
+  return hashParams.get("type") === "recovery" || searchParams.get("type") === "recovery";
 }
 
 function AuthenticatedApp({ profile }) {
