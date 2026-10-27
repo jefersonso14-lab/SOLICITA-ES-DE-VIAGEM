@@ -47,4 +47,4 @@ Consulte a pasta `docs/`.
 O GitHub Actions instala com lockfile congelado e executa `pnpm test` e `pnpm run build` em pushes para `main` e pull requests. A interface inclui link para pular a navegação, estados anunciados por leitor de tela e diálogo com nome acessível.
 
 ## Publicação e acesso
-O workflow `.github/workflows/deploy-pages.yml` publica o frontend no GitHub Pages após cada push em `main`. Na primeira publicação, selecione **Settings → Pages → GitHub Actions** como origem. O endereço do projeto é https://jefersonso14-lab.github.io/SOLICITA-ES-DE-VIAGEM/. O acesso aos dados continua exigindo login e políticas RLS; o build usa apenas a chave publicável do Supabase.
+O GitHub Pages está habilitado com origem **GitHub Actions**. O workflow `.github/workflows/deploy-pages.yml` publica o frontend após cada push em `main`. O endereço do projeto é https://jefersonso14-lab.github.io/SOLICITA-ES-DE-VIAGEM/. O acesso aos dados continua exigindo login e políticas RLS; o build usa apenas a chave publicável do Supabase.
