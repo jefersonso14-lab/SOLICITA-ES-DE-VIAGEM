@@ -35,6 +35,8 @@ jobs:
         run: pnpm test
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - name: Build production app
         run: pnpm run build
         env:
