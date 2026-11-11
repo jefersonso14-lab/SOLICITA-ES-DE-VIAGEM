@@ -878,9 +878,11 @@ function RequestModal({ clients, contracts, collaborators, onClose, onSave }) {
       <Field label="Data inicial" type="date" value={form.start_date} onChange={(v) => set("start_date", v)} required />
       <Field label="Data final" type="date" value={form.end_date} onChange={(v) => set("end_date", v)} required />
     </div>
-    <div className="form-section"><b>Colaboradores da OS</b><div className="collaborator-picker">
-      {collaborators.length ? collaborators.map((p) => <label key={p.id} className={form.collaborator_ids.includes(p.id) ? "person-option selected" : "person-option"}><input type="checkbox" checked={form.collaborator_ids.includes(p.id)} onChange={() => toggleCollaborator(p.id)} /><span><b>{p.name}</b><small>{p.sector || "Sem setor"}{p.uf ? " · " + p.uf : ""}</small></span></label>) : <small className="helper">Cadastre colaboradores antes de associá-los à OS.</small>}
-    </div></div>
+    <div className="form-section"><b>Colaboradores da OS</b>
+      {collaborators.length
+        ? <CollaboratorPicker collaborators={collaborators} selectedIds={form.collaborator_ids} onToggle={toggleCollaborator} />
+        : <small className="helper">Cadastre colaboradores antes de associá-los à OS.</small>}
+    </div>
     <div className="form-section"><b>Serviços e necessidades</b><div className="request-options">
       <CheckField label="Cotar hotel" checked={form.hotel_quote_requested} onChange={(v) => set("hotel_quote_requested", v)} />
       <CheckField label="Cotar locação de veículo" checked={form.vehicle_quote_requested} onChange={(v) => set("vehicle_quote_requested", v)} />
@@ -960,6 +962,97 @@ function CheckField({ label, checked, onChange }) {
 
 function SelectField({ label, value, onChange, options, placeholder }) {
   return <label className="field"><span>{label}</span><select value={value} onChange={(e) => onChange(e.target.value)}><option value="">{placeholder}</option>{options.map(([id, text]) => <option key={id} value={id}>{text}</option>)}</select></label>;
+}
+
+function CollaboratorPicker({ collaborators, selectedIds, onToggle }) {
+  const inputId = useId();
+  const listId = `${inputId}-collaborators`;
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const normalizedQuery = normalizeSearchText(query.trim());
+  const suggestions = normalizedQuery
+    ? collaborators.filter(person => normalizeSearchText(person.name).includes(normalizedQuery)).slice(0, 8)
+    : [];
+
+  function handleKeyDown(event) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setOpen(true);
+      setActiveIndex(current => suggestions.length ? Math.min(current + 1, suggestions.length - 1) : -1);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setOpen(true);
+      setActiveIndex(current => suggestions.length ? (current <= 0 ? suggestions.length - 1 : current - 1) : -1);
+    } else if (event.key === "Enter" && open && suggestions.length) {
+      event.preventDefault();
+      const person = suggestions[activeIndex >= 0 ? activeIndex : 0];
+      onToggle(person.id);
+    } else if (event.key === "Escape") {
+      setOpen(false);
+      setActiveIndex(-1);
+    }
+  }
+
+  const selected = selectedIds.map(id => collaborators.find(person => person.id === id)).filter(Boolean);
+
+  return <div className="collaborator-picker">
+    <div className="collaborator-search field">
+      <label htmlFor={inputId}>Pesquisar colaborador</label>
+      <div className="autocomplete-control">
+        <input
+          id={inputId}
+          type="search"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={open && Boolean(normalizedQuery)}
+          aria-controls={listId}
+          aria-activedescendant={open && activeIndex >= 0 ? `${listId}-${activeIndex}` : undefined}
+          aria-describedby={`${inputId}-help`}
+          autoComplete="off"
+          placeholder="Digite o nome do colaborador"
+          value={query}
+          onChange={event => {
+            setQuery(event.target.value);
+            setOpen(true);
+            setActiveIndex(-1);
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setOpen(false)}
+          onKeyDown={handleKeyDown}
+        />
+        {open && normalizedQuery && <div id={listId} className="autocomplete-list" role="listbox" aria-label="Sugestões de colaboradores" aria-multiselectable="true">
+          {suggestions.length ? suggestions.map((person, index) => {
+            const isSelected = selectedIds.includes(person.id);
+            return <div
+              id={`${listId}-${index}`}
+              key={person.id}
+              role="option"
+              aria-selected={isSelected}
+              className={index === activeIndex ? "autocomplete-option active collaborator-suggestion" : "autocomplete-option collaborator-suggestion"}
+              onPointerDown={event => event.preventDefault()}
+              onMouseEnter={() => setActiveIndex(index)}
+              onClick={() => onToggle(person.id)}
+            >
+              <span className="collaborator-suggestion-name">{person.name}</span>
+              <span className="collaborator-suggestion-meta">{[person.sector, person.uf].filter(Boolean).join(" · ") || "Colaborador"}</span>
+              <span className="collaborator-suggestion-state">{isSelected ? "Adicionado" : "Adicionar"}</span>
+            </div>;
+          }) : <div className="autocomplete-empty" role="status">Nenhum colaborador encontrado.</div>}
+        </div>}
+      </div>
+      <small id={`${inputId}-help`} className="helper autocomplete-helper">Digite parte do nome e selecione uma ou mais pessoas.</small>
+    </div>
+    <div className="collaborator-selection" aria-label="Colaboradores selecionados">
+      {selected.length ? selected.map(person => <button key={person.id} type="button" className="selected-collaborator" onClick={() => onToggle(person.id)} aria-label={`Remover ${person.name}`}>
+        <span>{person.name}</span><span aria-hidden="true">×</span>
+      </button>) : <small className="helper">Nenhum colaborador selecionado.</small>}
+    </div>
+  </div>;
+}
+
+function normalizeSearchText(value) {
+  return String(value || "").toLocaleLowerCase("pt-BR").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
 function AutocompleteField({ label, value, query, options, placeholder, helperText, invalid = false, onQueryChange, onSelect }) {
