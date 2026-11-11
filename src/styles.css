@@ -93,4 +93,14 @@ body{background:#f3f4f7;color:#20222b}
 .field input:focus,.field select:focus{outline:2px solid rgba(197,46,73,.3);border-color:#c52e49}
 .modal{border:1px solid #e0e2e8;border-radius:8px}
 @media(max-width:900px){.sidebar .brand{justify-content:center;padding-left:0;padding-right:0}.sidebar .brand-copy{display:none}}
-
+.autocomplete-field{min-width:0}
+.autocomplete-field>label{display:block;font-size:11px;font-weight:750;margin-bottom:6px}
+.autocomplete-control{position:relative}
+.autocomplete-control input{min-height:39px}
+.autocomplete-control input[aria-invalid="true"]{border-color:#b42318}
+.autocomplete-list{position:absolute;z-index:20;top:calc(100% + 4px);left:0;right:0;max-height:220px;overflow-y:auto;background:#fff;border:1px solid #d8d8d8;border-radius:6px;box-shadow:0 8px 20px #1112;padding:4px}
+.autocomplete-option{padding:9px 10px;border-radius:4px;font-size:12px;cursor:pointer}
+.autocomplete-option:hover,.autocomplete-option.active{background:#fff2f4;color:#7e1628}
+.autocomplete-empty{padding:10px;font-size:11px;line-height:1.45;color:#666}
+.autocomplete-helper{min-height:14px}
+.autocomplete-helper.error{color:#b42318}

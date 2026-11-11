@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   createCollaborator,
@@ -793,12 +793,18 @@ function Section({ title }) {
 function RequestModal({ clients, contracts, collaborators, onClose, onSave }) {
   const [form, setForm] = useState({ os: "", client_id: "", contract_id: "", state: "", city: "", origin: "", job_site_address: "", manager_name: "", hotel_quote_requested: false, vehicle_quote_requested: false, meal_extra_payment: false, taxi_uber_requested: false, notebook_loan_requested: false, vacation_status: "pending", start_date: "", end_date: "", collaborator_ids: [] });
   const [busy, setBusy] = useState(false);
+  const [clientQuery, setClientQuery] = useState("");
+  const [contractQuery, setContractQuery] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({ client: false, contract: false });
   const [contractOptions, setContractOptions] = useState(contracts);
   const set = (key, value) => setForm((current) => ({ ...current, [key]: value }));
 
   useEffect(() => {
     setContractOptions(form.client_id ? contracts.filter((c) => c.client_id === form.client_id) : contracts);
-    if (form.client_id && form.contract_id && !contracts.some((c) => c.id === form.contract_id && c.client_id === form.client_id)) set("contract_id", "");
+    if (form.client_id && form.contract_id && !contracts.some((c) => c.id === form.contract_id && c.client_id === form.client_id)) {
+      set("contract_id", "");
+      setContractQuery("");
+    }
   }, [form.client_id, contracts]);
 
   function toggleCollaborator(id) {
@@ -807,6 +813,10 @@ function RequestModal({ clients, contracts, collaborators, onClose, onSave }) {
 
   async function submit(event) {
     event.preventDefault();
+    const hasUnselectedClientText = Boolean(clientQuery.trim() && !form.client_id);
+    const hasUnselectedContractText = Boolean(contractQuery.trim() && !form.contract_id);
+    setFieldErrors({ client: hasUnselectedClientText, contract: hasUnselectedContractText });
+    if (hasUnselectedClientText || hasUnselectedContractText) return;
     if (!form.os || !form.start_date || !form.end_date || form.end_date < form.start_date) return;
     setBusy(true);
     await onSave(form);
@@ -816,8 +826,50 @@ function RequestModal({ clients, contracts, collaborators, onClose, onSave }) {
   return <ModalShell title="Nova solicitação de viagem" onClose={onClose}><form onSubmit={submit}>
     <div className="form-grid">
       <Field label="OS" value={form.os} onChange={(v) => set("os", v)} required />
-      <SelectField label="Cliente" value={form.client_id} onChange={(v) => set("client_id", v)} options={clients.map((c) => [c.id, c.name])} placeholder="Selecione" />
-      <SelectField label="Contrato" value={form.contract_id} onChange={(v) => set("contract_id", v)} options={contractOptions.map((c) => [c.id, c.code ? c.code + " — " + c.name : c.name])} placeholder={form.client_id ? "Selecione" : "Todos os contratos"} />
+      <AutocompleteField
+        label="Cliente"
+        value={form.client_id}
+        query={clientQuery}
+        options={clients.map((client) => [client.id, client.name])}
+        placeholder="Digite para buscar"
+        helperText={fieldErrors.client ? "Selecione um cliente cadastrado ou apague o texto digitado." : form.client_id ? "Cliente selecionado." : "Digite para buscar e escolha um cliente cadastrado."}
+        invalid={fieldErrors.client}
+        onQueryChange={(value) => {
+          setClientQuery(value);
+          if (form.client_id) {
+            set("client_id", "");
+            set("contract_id", "");
+            setContractQuery("");
+          }
+          if (!value.trim()) setFieldErrors((current) => ({ ...current, client: false, contract: false }));
+        }}
+        onSelect={(option) => {
+          set("client_id", option[0]);
+          set("contract_id", "");
+          setClientQuery(option[1]);
+          setContractQuery("");
+          setFieldErrors({ client: false, contract: false });
+        }}
+      />
+      <AutocompleteField
+        label="Contrato"
+        value={form.contract_id}
+        query={contractQuery}
+        options={contractOptions.map((contract) => [contract.id, contract.code ? contract.code + " — " + contract.name : contract.name])}
+        placeholder="Digite para buscar"
+        helperText={fieldErrors.contract ? "Selecione um contrato cadastrado ou apague o texto digitado." : form.contract_id ? "Contrato selecionado." : form.client_id ? "Sugestões vinculadas ao cliente selecionado." : "Digite para buscar um contrato cadastrado."}
+        invalid={fieldErrors.contract}
+        onQueryChange={(value) => {
+          setContractQuery(value);
+          if (form.contract_id) set("contract_id", "");
+          if (!value.trim()) setFieldErrors((current) => ({ ...current, contract: false }));
+        }}
+        onSelect={(option) => {
+          set("contract_id", option[0]);
+          setContractQuery(option[1]);
+          setFieldErrors((current) => ({ ...current, contract: false }));
+        }}
+      />
       <Field label="Origem" value={form.origin} onChange={(v) => set("origin", v)} />
       <Field label="Cidade de destino" value={form.city} onChange={(v) => set("city", v)} />
       <Field label="Estado de destino" value={form.state} onChange={(v) => set("state", v)} />
@@ -910,6 +962,84 @@ function SelectField({ label, value, onChange, options, placeholder }) {
   return <label className="field"><span>{label}</span><select value={value} onChange={(e) => onChange(e.target.value)}><option value="">{placeholder}</option>{options.map(([id, text]) => <option key={id} value={id}>{text}</option>)}</select></label>;
 }
 
+function AutocompleteField({ label, value, query, options, placeholder, helperText, invalid = false, onQueryChange, onSelect }) {
+  const inputId = useId();
+  const listId = `${inputId}-suggestions`;
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const normalizedQuery = query.trim().toLocaleLowerCase("pt-BR");
+  const suggestions = options
+    .filter(([, text]) => !normalizedQuery || text.toLocaleLowerCase("pt-BR").includes(normalizedQuery))
+    .slice(0, 8);
+
+  function choose(option) {
+    onSelect(option);
+    setOpen(false);
+    setActiveIndex(-1);
+  }
+
+  function handleKeyDown(event) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setOpen(true);
+      setActiveIndex((current) => suggestions.length ? Math.min(current + 1, suggestions.length - 1) : -1);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setOpen(true);
+      setActiveIndex((current) => suggestions.length ? (current <= 0 ? suggestions.length - 1 : current - 1) : -1);
+    } else if (event.key === "Enter" && open && suggestions.length) {
+      event.preventDefault();
+      choose(suggestions[activeIndex >= 0 ? activeIndex : 0]);
+    } else if (event.key === "Escape") {
+      setOpen(false);
+      setActiveIndex(-1);
+    }
+  }
+
+  return <div className="field autocomplete-field">
+    <label htmlFor={inputId}>{label}</label>
+    <div className="autocomplete-control">
+      <input
+        id={inputId}
+        type="text"
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={open}
+        aria-controls={listId}
+        aria-activedescendant={open && activeIndex >= 0 ? `${listId}-${activeIndex}` : undefined}
+        aria-invalid={invalid || undefined}
+        aria-describedby={`${inputId}-helper`}
+        autoComplete="off"
+        value={query}
+        placeholder={placeholder}
+        onChange={(event) => {
+          onQueryChange(event.target.value);
+          setOpen(true);
+          setActiveIndex(-1);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={handleKeyDown}
+      />
+      {open && <div id={listId} className="autocomplete-list" role="listbox" aria-label={`Sugestões de ${label.toLocaleLowerCase("pt-BR")}`}>
+        {suggestions.length ? suggestions.map((option, index) => (
+          <div
+            id={`${listId}-${index}`}
+            key={option[0]}
+            role="option"
+            aria-selected={index === activeIndex || option[0] === value}
+            className={index === activeIndex ? "autocomplete-option active" : "autocomplete-option"}
+            onPointerDown={(event) => event.preventDefault()}
+            onMouseEnter={() => setActiveIndex(index)}
+            onClick={() => choose(option)}
+          >{option[1]}</div>
+        )) : <div className="autocomplete-empty" role="status">Nenhum cadastro encontrado. Para usar um novo registro, cadastre-o primeiro.</div>}
+      </div>}
+    </div>
+    <small id={`${inputId}-helper`} className={invalid ? "helper autocomplete-helper error" : "helper autocomplete-helper"}>{helperText}</small>
+  </div>;
+}
+
 function Stat({ label, value, note }) { return <article className="stat"><span>{label}</span><strong>{value}</strong><small>{note}</small></article>; }
 function initials(name) { return (name || "US").split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase(); }
 function formatDateTime(value) { if (!value) return "—"; return new Date(value).toLocaleString("pt-BR"); }
@@ -917,4 +1047,3 @@ function formatDate(value) { if (!value) return "—"; const [year, month, day] 
 function money(value) { return Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
 
 createRoot(document.getElementById("root")).render(<App />);
-
