@@ -2,6 +2,8 @@ import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   createCollaborator,
+  createClient,
+  createContract,
   createTravelRequest,
   ensureRequesterProfile,
   listClients,
@@ -310,13 +312,43 @@ function AuthenticatedApp({ profile }) {
 
   async function handleSaveRequest(form, intent = "draft") {
     try {
-      const request = await createTravelRequest(form, intent === "send" ? "submitted" : "draft");
+      const sameName = (left, right) => String(left || "").trim().toLocaleLowerCase("pt-BR")
+        === String(right || "").trim().toLocaleLowerCase("pt-BR");
+      let clientId = form.client_id || null;
+      let contractId = form.contract_id || null;
+      let requestClients = clients;
+      let requestContracts = contracts;
+
+      if (!clientId && form.client_name?.trim()) {
+        const existingClient = clients.find(item => sameName(item.name, form.client_name));
+        const client = existingClient || await createClient(form.client_name);
+        clientId = client.id;
+        if (!existingClient) requestClients = [...clients, client];
+      }
+
+      if (!contractId && form.contract_name?.trim()) {
+        const matchingContracts = contracts.filter(item => sameName(item.name, form.contract_name));
+        const existingContract = clientId
+          ? matchingContracts.find(item => item.client_id === clientId)
+          : matchingContracts.length === 1 ? matchingContracts[0] : null;
+        const contract = existingContract || await createContract({ client_id: clientId, name: form.contract_name });
+        if (!clientId && contract.client_id) clientId = contract.client_id;
+        contractId = contract.id;
+        if (!existingContract) requestContracts = [...contracts, contract];
+      }
+
+      setClients(requestClients);
+      setContracts(requestContracts);
+      const requestForm = { ...form, client_id: clientId, contract_id: contractId };
+      delete requestForm.client_name;
+      delete requestForm.contract_name;
+      const request = await createTravelRequest(requestForm, intent === "send" ? "submitted" : "draft");
       setModal(null);
       await refreshRequests();
       if (intent === "send") {
         setNotice("Solicitação registrada. Revise o e-mail preparado e clique em Enviar para encaminhar.", {
           label: "Abrir e-mail",
-          href: buildTravelRequestMailto({ form, request, profile, clients, contracts, collaborators })
+          href: buildTravelRequestMailto({ form: requestForm, request, profile, clients: requestClients, contracts: requestContracts, collaborators })
         });
       } else {
         setNotice("Solicitação criada como rascunho.");
@@ -850,17 +882,18 @@ function RequestModal({ clients, contracts, collaborators, onClose, onSave }) {
   const [busyAction, setBusyAction] = useState("");
   const [clientQuery, setClientQuery] = useState("");
   const [contractQuery, setContractQuery] = useState("");
-  const [fieldErrors, setFieldErrors] = useState({ client: false, contract: false });
   const [contractOptions, setContractOptions] = useState(contracts);
   const set = (key, value) => setForm((current) => ({ ...current, [key]: value }));
 
   useEffect(() => {
-    setContractOptions(form.client_id ? contracts.filter((c) => c.client_id === form.client_id) : contracts);
+    setContractOptions(form.client_id
+      ? contracts.filter((c) => c.client_id === form.client_id)
+      : clientQuery.trim() ? [] : contracts);
     if (form.client_id && form.contract_id && !contracts.some((c) => c.id === form.contract_id && c.client_id === form.client_id)) {
       set("contract_id", "");
       setContractQuery("");
     }
-  }, [form.client_id, contracts]);
+  }, [form.client_id, contracts, clientQuery]);
 
   function toggleCollaborator(id) {
     set("collaborator_ids", form.collaborator_ids.includes(id) ? form.collaborator_ids.filter((x) => x !== id) : [...form.collaborator_ids, id]);
@@ -868,14 +901,14 @@ function RequestModal({ clients, contracts, collaborators, onClose, onSave }) {
 
   async function submit(event) {
     event.preventDefault();
-    const hasUnselectedClientText = Boolean(clientQuery.trim() && !form.client_id);
-    const hasUnselectedContractText = Boolean(contractQuery.trim() && !form.contract_id);
-    setFieldErrors({ client: hasUnselectedClientText, contract: hasUnselectedContractText });
-    if (hasUnselectedClientText || hasUnselectedContractText) return;
     if (!form.os || !form.start_date || !form.end_date || form.end_date < form.start_date) return;
     const intent = event.nativeEvent.submitter?.value === "send" ? "send" : "draft";
     setBusyAction(intent);
-    await onSave(form, intent);
+    await onSave({
+      ...form,
+      client_name: form.client_id ? "" : clientQuery.trim(),
+      contract_name: form.contract_id ? "" : contractQuery.trim()
+    }, intent);
     setBusyAction("");
   }
 
@@ -886,10 +919,10 @@ function RequestModal({ clients, contracts, collaborators, onClose, onSave }) {
         label="Cliente"
         value={form.client_id}
         query={clientQuery}
+        allowNew
         options={clients.map((client) => [client.id, client.name])}
         placeholder="Digite para buscar"
-        helperText={fieldErrors.client ? "Selecione um cliente cadastrado ou apague o texto digitado." : form.client_id ? "Cliente selecionado." : "Digite para buscar e escolha um cliente cadastrado."}
-        invalid={fieldErrors.client}
+        helperText={form.client_id ? "Cliente selecionado." : "Selecione um cliente existente ou digite um novo nome; ele será cadastrado ao salvar."}
         onQueryChange={(value) => {
           setClientQuery(value);
           if (form.client_id) {
@@ -897,33 +930,33 @@ function RequestModal({ clients, contracts, collaborators, onClose, onSave }) {
             set("contract_id", "");
             setContractQuery("");
           }
-          if (!value.trim()) setFieldErrors((current) => ({ ...current, client: false, contract: false }));
         }}
         onSelect={(option) => {
           set("client_id", option[0]);
           set("contract_id", "");
           setClientQuery(option[1]);
           setContractQuery("");
-          setFieldErrors({ client: false, contract: false });
         }}
       />
       <AutocompleteField
         label="Contrato"
         value={form.contract_id}
         query={contractQuery}
-        options={contractOptions.map((contract) => [contract.id, contract.code ? contract.code + " — " + contract.name : contract.name])}
+        allowNew
+        options={contractOptions.map((contract) => [contract.id, contract.code ? contract.code + " — " + contract.name : contract.name, contract.client_id])}
         placeholder="Digite para buscar"
-        helperText={fieldErrors.contract ? "Selecione um contrato cadastrado ou apague o texto digitado." : form.contract_id ? "Contrato selecionado." : form.client_id ? "Sugestões vinculadas ao cliente selecionado." : "Digite para buscar um contrato cadastrado."}
-        invalid={fieldErrors.contract}
+        helperText={form.contract_id ? "Contrato selecionado." : form.client_id ? "Selecione um contrato deste cliente ou digite um novo nome; ele será cadastrado ao salvar." : "Digite para buscar um contrato existente ou informe um novo nome."}
         onQueryChange={(value) => {
           setContractQuery(value);
           if (form.contract_id) set("contract_id", "");
-          if (!value.trim()) setFieldErrors((current) => ({ ...current, contract: false }));
         }}
         onSelect={(option) => {
           set("contract_id", option[0]);
           setContractQuery(option[1]);
-          setFieldErrors((current) => ({ ...current, contract: false }));
+          if (option[2]) {
+            set("client_id", option[2]);
+            setClientQuery(clients.find(client => client.id === option[2])?.name || "");
+          }
         }}
       />
       <Field label="Origem" value={form.origin} onChange={(v) => set("origin", v)} />
@@ -1111,7 +1144,7 @@ function normalizeSearchText(value) {
   return String(value || "").toLocaleLowerCase("pt-BR").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
-function AutocompleteField({ label, value, query, options, placeholder, helperText, invalid = false, onQueryChange, onSelect }) {
+function AutocompleteField({ label, value, query, options, placeholder, helperText, invalid = false, allowNew = false, onQueryChange, onSelect }) {
   const inputId = useId();
   const listId = `${inputId}-suggestions`;
   const [open, setOpen] = useState(false);
@@ -1182,7 +1215,7 @@ function AutocompleteField({ label, value, query, options, placeholder, helperTe
             onMouseEnter={() => setActiveIndex(index)}
             onClick={() => choose(option)}
           >{option[1]}</div>
-        )) : <div className="autocomplete-empty" role="status">Nenhum cadastro encontrado. Para usar um novo registro, cadastre-o primeiro.</div>}
+        )) : <div className="autocomplete-empty" role="status">{allowNew && query.trim() ? "Esse novo nome será cadastrado ao salvar a solicitação." : "Nenhum cadastro encontrado."}</div>}
       </div>}
     </div>
     <small id={`${inputId}-helper`} className={invalid ? "helper autocomplete-helper error" : "helper autocomplete-helper"}>{helperText}</small>

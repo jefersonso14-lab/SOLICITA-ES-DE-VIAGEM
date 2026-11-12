@@ -69,10 +69,55 @@ export async function listClients() {
   return requireSupabase().from("clients").select("id,name").eq("active", true).order("name");
 }
 
+function normalizedCatalogName(value) {
+  return String(value || "").trim().toLocaleLowerCase("pt-BR");
+}
+
+export async function createClient(name) {
+  const client = requireSupabase();
+  const cleanName = String(name || "").trim();
+  if (!cleanName) throw new Error("Informe o nome do cliente.");
+
+  const { data, error } = await client.from("clients").insert({ name: cleanName, active: true })
+    .select("id,name").single();
+  if (!error) return data;
+
+  if (error.code === "23505") {
+    const { data: existing, error: lookupError } = await listClients();
+    if (lookupError) throw lookupError;
+    const match = (existing || []).find(item => normalizedCatalogName(item.name) === normalizedCatalogName(cleanName));
+    if (match) return match;
+  }
+  throw error;
+}
+
 export async function listContracts(clientId = null) {
   let query = requireSupabase().from("contracts").select("id,client_id,code,name").eq("active", true).order("name");
   if (clientId) query = query.eq("client_id", clientId);
   return query;
+}
+
+export async function createContract({ client_id = null, name }) {
+  const client = requireSupabase();
+  const cleanName = String(name || "").trim();
+  if (!cleanName) throw new Error("Informe o nome do contrato.");
+
+  const { data, error } = await client.from("contracts").insert({
+    client_id: client_id || null,
+    code: null,
+    name: cleanName,
+    active: true
+  }).select("id,client_id,code,name").single();
+  if (!error) return data;
+
+  if (error.code === "23505") {
+    const { data: existing, error: lookupError } = await listContracts();
+    if (lookupError) throw lookupError;
+    const match = (existing || []).find(item => item.client_id === (client_id || null)
+      && normalizedCatalogName(item.name) === normalizedCatalogName(cleanName));
+    if (match) return match;
+  }
+  throw error;
 }
 
 export async function listCollaborators() {
