@@ -253,13 +253,18 @@ function AuthenticatedApp({ profile }) {
   const [clients, setClients] = useState([]);
   const [contracts, setContracts] = useState([]);
   const [costs, setCosts] = useState([]);
-  const [notice, setNotice] = useState("");
+  const [notice, setNoticeText] = useState("");
+  const [noticeAction, setNoticeAction] = useState(null);
   const [costRefreshVersion, setCostRefreshVersion] = useState(0);
   const [reports, setReports] = useState([]);
   const [attachments, setAttachments] = useState([]);
 
   const title = useMemo(() => menu.find(([id]) => id === active)?.[1] || "Dashboard", [active]);
   const canManage = profile?.role === "admin" || profile?.role === "manager";
+  const setNotice = (message, action = null) => {
+    setNoticeText(message);
+    setNoticeAction(action);
+  };
 
   async function refreshRequests() {
     try { setRequests(await listTravelRequests()); }
@@ -303,12 +308,19 @@ function AuthenticatedApp({ profile }) {
     refreshRequests(); refreshCollaborators(); refreshCatalogs(); refreshCosts(); refreshReports(); refreshAttachments();
   }, []);
 
-  async function handleSaveRequest(form) {
+  async function handleSaveRequest(form, intent = "draft") {
     try {
-      await createTravelRequest(form);
-      setNotice("Solicitação criada como rascunho.");
+      const request = await createTravelRequest(form, intent === "send" ? "submitted" : "draft");
       setModal(null);
       await refreshRequests();
+      if (intent === "send") {
+        setNotice("Solicitação registrada. Revise o e-mail preparado e clique em Enviar para encaminhar.", {
+          label: "Abrir e-mail",
+          href: buildTravelRequestMailto({ form, request, profile, clients, contracts, collaborators })
+        });
+      } else {
+        setNotice("Solicitação criada como rascunho.");
+      }
     } catch (error) { setNotice(error.message || "Não foi possível salvar a solicitação."); }
   }
 
@@ -353,7 +365,7 @@ function AuthenticatedApp({ profile }) {
         </div>
       </header>
 
-      {notice && <div className="global-notice" role="status" aria-live="polite"><span>{notice}</span><button aria-label="Fechar aviso" onClick={() => setNotice("")}>×</button></div>}
+      {notice && <div className="global-notice" role="status" aria-live="polite"><span>{notice}</span>{noticeAction && <a className="notice-action" href={noticeAction.href} target="_blank" rel="noopener noreferrer" aria-label="Abrir e-mail preparado para viagens@broadtec.com.br">{noticeAction.label}</a>}<button aria-label="Fechar aviso" onClick={() => setNotice("")}>×</button></div>}
       {active === "dashboard" && <Dashboard requests={requests} costs={costs} search={search} setSearch={setSearch} onNew={() => setModal("request")} />}
       {active === "requests" && <Requests requests={requests} search={search} setSearch={setSearch} onNew={() => setModal("request")} />}
       {active === "people" && <People collaborators={collaborators} search={search} setSearch={setSearch} onNew={canManage ? () => setModal("people") : undefined} />}
@@ -370,6 +382,49 @@ function AuthenticatedApp({ profile }) {
     {modal === "cost" && <CostModal requests={requests} collaborators={collaborators} onClose={() => setModal(null)} onSave={handleSaveCost} />}
     {modal === "services" && <ServiceModal requests={requests} collaborators={collaborators} onClose={() => setModal(null)} onSave={async (type, payload) => { try { if (type === "meal-batch") { const result = await generateMealsForRequest(payload.travel_request_id); setNotice(result.created ? result.created + " refeições geradas automaticamente para a OS." : "As refeições da OS já estavam compostas."); setModal(null); return; } await saveTravelService(type, payload); setNotice("Serviço registrado. A composição da OS foi atualizada."); setCostRefreshVersion(v => v + 1); await refreshCosts(); setModal(null); } catch (error) { setNotice(error.message || "Não foi possível registrar o serviço."); } }} />}
   </div>;
+}
+
+function buildTravelRequestMailto({ form, request, profile, clients, contracts, collaborators }) {
+  const client = clients.find(item => item.id === form.client_id);
+  const contract = contracts.find(item => item.id === form.contract_id);
+  const selectedCollaborators = (form.collaborator_ids || [])
+    .map(id => collaborators.find(person => person.id === id))
+    .filter(Boolean);
+  const destination = [form.city, form.state].filter(Boolean).join(" / ") || "Não informado";
+  const vacationStatus = { pending: "Verificar com o RH", yes: "Sim", no: "Não" }[form.vacation_status] || "Não informado";
+  const requestedItems = [
+    ["Cotar hotel", form.hotel_quote_requested],
+    ["Cotar locação de veículo", form.vehicle_quote_requested],
+    ["Pagamento de refeição extra", form.meal_extra_payment],
+    ["Utilizar táxi / Uber", form.taxi_uber_requested],
+    ["Empréstimo de notebook", form.notebook_loan_requested]
+  ].map(([label, requested]) => `${label}: ${requested ? "Sim" : "Não"}`);
+  const subject = `Solicitação de viagem — OS ${form.os}`;
+  const body = [
+    "Olá, equipe de viagens,",
+    "",
+    "Segue uma solicitação de viagem registrada na plataforma:",
+    `OS: ${request.os || form.os}`,
+    `Identificador: ${request.id}`,
+    `Solicitante: ${profile?.full_name || "Não informado"}`,
+    `Cliente: ${client?.name || "Não informado"}`,
+    `Contrato: ${contract ? [contract.code, contract.name].filter(Boolean).join(" — ") : "Não informado"}`,
+    `Origem: ${form.origin || "Não informado"}`,
+    `Destino: ${destination}`,
+    `Endereço da obra: ${form.job_site_address || "Não informado"}`,
+    `Período: ${formatDate(form.start_date)} a ${formatDate(form.end_date)}`,
+    `Gestor: ${form.manager_name || "Não informado"}`,
+    "",
+    "Colaboradores:",
+    ...(selectedCollaborators.length ? selectedCollaborators.map(person => `- ${person.name}`) : ["- Não informado"]),
+    "",
+    "Necessidades informadas:",
+    ...requestedItems.map(item => `- ${item}`),
+    `Previsão de férias: ${vacationStatus}`,
+    "",
+    `Acessar plataforma: ${new URL(import.meta.env.BASE_URL, window.location.origin).href}`
+  ].join("\r\n");
+  return `mailto:viagens@broadtec.com.br?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
 function Dashboard({ requests, costs, search, setSearch, onNew }) {
@@ -792,7 +847,7 @@ function Section({ title }) {
 
 function RequestModal({ clients, contracts, collaborators, onClose, onSave }) {
   const [form, setForm] = useState({ os: "", client_id: "", contract_id: "", state: "", city: "", origin: "", job_site_address: "", manager_name: "", hotel_quote_requested: false, vehicle_quote_requested: false, meal_extra_payment: false, taxi_uber_requested: false, notebook_loan_requested: false, vacation_status: "pending", start_date: "", end_date: "", collaborator_ids: [] });
-  const [busy, setBusy] = useState(false);
+  const [busyAction, setBusyAction] = useState("");
   const [clientQuery, setClientQuery] = useState("");
   const [contractQuery, setContractQuery] = useState("");
   const [fieldErrors, setFieldErrors] = useState({ client: false, contract: false });
@@ -818,9 +873,10 @@ function RequestModal({ clients, contracts, collaborators, onClose, onSave }) {
     setFieldErrors({ client: hasUnselectedClientText, contract: hasUnselectedContractText });
     if (hasUnselectedClientText || hasUnselectedContractText) return;
     if (!form.os || !form.start_date || !form.end_date || form.end_date < form.start_date) return;
-    setBusy(true);
-    await onSave(form);
-    setBusy(false);
+    const intent = event.nativeEvent.submitter?.value === "send" ? "send" : "draft";
+    setBusyAction(intent);
+    await onSave(form, intent);
+    setBusyAction("");
   }
 
   return <ModalShell title="Nova solicitação de viagem" onClose={onClose}><form onSubmit={submit}>
@@ -890,8 +946,8 @@ function RequestModal({ clients, contracts, collaborators, onClose, onSave }) {
       <CheckField label="Utilização de táxi / Uber" checked={form.taxi_uber_requested} onChange={(v) => set("taxi_uber_requested", v)} />
       <CheckField label="Empréstimo de notebook" checked={form.notebook_loan_requested} onChange={(v) => set("notebook_loan_requested", v)} />
     </div><small className="helper">Essas opções registram necessidades da solicitação. O lançamento de custos continua sendo feito na composição da OS.</small></div>
-    <div className="form-section"><SelectField label="Previsão de férias próximo à viagem" value={form.vacation_status} onChange={(v) => set("vacation_status", v)} options={[["pending", "Verificar com o RH"], ["yes", "Sim"], ["no", "Não"]]} placeholder="Selecione" /></div>
-    <div className="modal-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button className="primary" disabled={busy}>{busy ? "Salvando..." : "Salvar rascunho"}</button></div>
+    <div className="form-section"><SelectField label="Previsão de férias próximo à viagem" value={form.vacation_status} onChange={(v) => set("vacation_status", v)} options={[["pending", "Verificar com o RH"], ["yes", "Sim"], ["no", "Não"]]} placeholder="Selecione" /><small className="helper">Ao enviar, a solicitação será registrada e um e-mail para viagens@broadtec.com.br ficará pronto para revisão e envio.</small></div>
+    <div className="modal-actions"><button type="button" className="secondary" onClick={onClose} disabled={Boolean(busyAction)}>Cancelar</button><button type="submit" className="secondary" value="draft" disabled={Boolean(busyAction)}>{busyAction === "draft" ? "Salvando..." : "Salvar rascunho"}</button><button type="submit" className="primary" value="send" disabled={Boolean(busyAction)}>{busyAction === "send" ? "Preparando envio..." : "Enviar solicitação"}</button></div>
   </form></ModalShell>;
 }
 

@@ -235,7 +235,7 @@ export async function createCost(payload) {
   return data;
 }
 
-export async function createTravelRequest(payload) {
+export async function createTravelRequest(payload, status = "draft") {
   const client = requireSupabase();
   const user = await getCurrentUser();
   if (!user) throw new Error("Usuário não autenticado.");
@@ -258,7 +258,7 @@ export async function createTravelRequest(payload) {
     vacation_status: payload.vacation_status || "pending",
     start_date: payload.start_date,
     end_date: payload.end_date,
-    status: "draft"
+    status: status === "submitted" ? "submitted" : "draft"
   }).select("id,os,state,city,origin,job_site_address,manager_name,hotel_quote_requested,vehicle_quote_requested,meal_extra_payment,taxi_uber_requested,notebook_loan_requested,vacation_status,start_date,end_date,days,status,created_at").single();
 
   if (error) throw error;
