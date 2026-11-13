@@ -57,3 +57,8 @@ O GitHub Pages está habilitado com origem **GitHub Actions**. O workflow `.gith
 - Entrada administrativa: https://jefersonso14-lab.github.io/SOLICITA-ES-DE-VIAGEM/?acesso=admin
 - A rota administrativa exige um perfil `admin` ativo; o endereço não concede privilégios. A primeira conta de administrador deve ser promovida por um administrador autorizado no banco depois que o usuário se cadastrar e confirmar seu e-mail. O aplicativo não permite que um usuário escolha o próprio papel.
 
+
+### Edição, remoção e histórico da solicitação
+- O solicitante pode editar as próprias solicitações; administradores podem editar ou remover qualquer solicitação ativa.
+- Remover é uma ação lógica: a solicitação deixa as listas e a consolidação ativas, enquanto custos, arquivos e eventos de auditoria permanecem preservados.
+- O histórico identifica o usuário, a OS e os campos alterados. Permissões e bloqueio de exclusão física também são aplicados no banco.

@@ -140,7 +140,8 @@ export async function createCollaborator(payload) {
 
 export async function listTravelRequests() {
   const { data, error } = await requireSupabase().from("travel_requests")
-    .select("id,os,state,city,origin,job_site_address,manager_name,hotel_quote_requested,vehicle_quote_requested,meal_extra_payment,taxi_uber_requested,notebook_loan_requested,vacation_status,start_date,end_date,days,status,created_at,client:clients(name)")
+    .select("id,requester_id,client_id,contract_id,os,state,city,origin,job_site_address,manager_name,hotel_quote_requested,vehicle_quote_requested,meal_extra_payment,taxi_uber_requested,notebook_loan_requested,vacation_status,start_date,end_date,days,status,created_at,client:clients(name),contract:contracts(code,name)")
+    .is("deleted_at", null)
     .order("created_at", { ascending: false });
   if (error) throw error;
   return data || [];
@@ -256,7 +257,8 @@ export async function listTravelRequestReports() {
 
 export async function listCosts() {
   const { data, error } = await requireSupabase().from("costs")
-    .select("id,travel_request_id,category,description,amount,cost_date,collaborator_id,source,created_at,travel_request:travel_requests(os,city,state)")
+    .select("id,travel_request_id,category,description,amount,cost_date,collaborator_id,source,created_at,travel_request:travel_requests!inner(os,city,state,deleted_at)")
+    .is("travel_request.deleted_at", null)
     .order("created_at", { ascending: false });
   if (error) throw error;
   return data || [];
@@ -322,9 +324,49 @@ export async function createTravelRequest(payload, status = "draft") {
 }
 
 
+export async function updateTravelRequest(travelRequestId, payload) {
+  const { error } = await requireSupabase().rpc("update_travel_request", {
+    p_travel_request_id: travelRequestId,
+    p_os: payload.os,
+    p_client_id: payload.client_id || null,
+    p_contract_id: payload.contract_id || null,
+    p_state: payload.state || null,
+    p_city: payload.city || null,
+    p_origin: payload.origin || null,
+    p_job_site_address: payload.job_site_address || null,
+    p_manager_name: payload.manager_name || null,
+    p_hotel_quote_requested: Boolean(payload.hotel_quote_requested),
+    p_vehicle_quote_requested: Boolean(payload.vehicle_quote_requested),
+    p_meal_extra_payment: Boolean(payload.meal_extra_payment),
+    p_taxi_uber_requested: Boolean(payload.taxi_uber_requested),
+    p_notebook_loan_requested: Boolean(payload.notebook_loan_requested),
+    p_vacation_status: payload.vacation_status || "pending",
+    p_start_date: payload.start_date,
+    p_end_date: payload.end_date,
+    p_collaborator_ids: [...new Set(payload.collaborator_ids || [])].filter(Boolean)
+  });
+  if (error) throw error;
+}
+
+export async function removeTravelRequest(travelRequestId) {
+  const timestamp = new Date().toISOString();
+  const { data, error } = await requireSupabase().from("travel_requests")
+    .update({ deleted_at: timestamp, updated_at: timestamp })
+    .eq("id", travelRequestId)
+    .is("deleted_at", null)
+    .select("id")
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error("Solicitação não encontrada ou já removida.");
+  return data;
+}
+
 export async function listAttachments(travelRequestId) {
   const client = requireSupabase();
-  let query = client.from("attachments").select("*").order("created_at", { ascending: false });
+  let query = client.from("attachments")
+    .select("*,travel_request:travel_requests!inner(deleted_at)")
+    .is("travel_request.deleted_at", null)
+    .order("created_at", { ascending: false });
   if (travelRequestId) query = query.eq("travel_request_id", travelRequestId);
   const { data, error } = await query;
   if (error) throw error;
@@ -398,11 +440,26 @@ export async function listAuditLogs({ travelRequestId, limit = 250 } = {}) {
     if (profilesError) throw profilesError;
     namesById = Object.fromEntries((profiles || []).map(profile => [profile.id, profile.full_name]));
   }
-  return (data || []).map(event => ({
-    ...event,
-    actor_name: namesById[event.user_id] || "Usuário do sistema",
-    summary: summarizeAuditEvent(event)
-  }));
+  const requestIds = [...new Set((data || []).map(event => event.travel_request_id).filter(Boolean))];
+  let requestOsById = {};
+  if (requestIds.length) {
+    const { data: requestRows, error: requestError } = await client.from("travel_requests")
+      .select("id,os").in("id", requestIds);
+    if (requestError) throw requestError;
+    requestOsById = Object.fromEntries((requestRows || []).map(request => [request.id, request.os]));
+  }
+  return (data || []).map(event => {
+    const removed = event.entity_type === "travel_requests"
+      && event.action === "update"
+      && (event.changed_fields || []).includes("deleted_at");
+    return {
+      ...event,
+      action: removed ? "delete" : event.action,
+      request_os: requestOsById[event.travel_request_id] || "",
+      actor_name: namesById[event.user_id] || "Usuário do sistema",
+      summary: removed ? "Solicitação removida; custos e anexos preservados." : summarizeAuditEvent(event)
+    };
+  });
 }
 
 export async function saveAttachmentExtraction(attachmentId, extraction) {
@@ -428,7 +485,7 @@ export async function confirmAttachmentCost(attachmentId, fields) {
 export async function loadTravelDossier(travelRequestId) {
   const client = requireSupabase();
   const [requestResult, collaboratorResult, ticketResult, lodgingResult, vehicleResult, mealResult, laundryResult, uberResult, costResult, attachmentResult, composition, auditEvents] = await Promise.all([
-    client.from("travel_requests").select("*,client:clients(name),contract:contracts(code,name)").eq("id", travelRequestId).single(),
+    client.from("travel_requests").select("*,client:clients(name),contract:contracts(code,name)").eq("id", travelRequestId).is("deleted_at", null).single(),
     client.from("travel_request_collaborators").select("collaborator:collaborators(id,name,cpf,sector)").eq("travel_request_id", travelRequestId),
     client.from("tickets").select("*").eq("travel_request_id", travelRequestId),
     client.from("accommodations").select("*").eq("travel_request_id", travelRequestId),

@@ -27,7 +27,7 @@ const fieldLabels = {
   extracted_data: "Dados extraídos", extraction_status: "Estado da extração", extraction_text: "Texto OCR",
   file_name: "Arquivo", manager_name: "Gestor", meal_date: "Data da refeição",
   name: "Nome", os: "OS", role: "Perfil de acesso", start_date: "Data inicial",
-  status: "Situação", supplier: "Fornecedor", travel_request_id: "Solicitação",
+  status: "Situação", deleted_at: "Remoção", supplier: "Fornecedor", travel_request_id: "Solicitação",
   unit_cost: "Valor unitário"
 };
 
@@ -52,7 +52,7 @@ export function filterAuditEvents(events, requests, filters = {}) {
   return events.filter(event => {
     const request = requestsById.get(event.travel_request_id);
     const date = String(event.created_at || "").slice(0, 10);
-    const searchText = [event.summary, event.actor_name, request?.os, event.entity_id]
+    const searchText = [event.summary, event.actor_name, event.request_os, request?.os, event.entity_id]
       .filter(Boolean).join(" ").toLocaleLowerCase("pt-BR");
 
     return (!search || searchText.includes(search))

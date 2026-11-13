@@ -5,6 +5,8 @@ import {
   createClient,
   createContract,
   createTravelRequest,
+  updateTravelRequest,
+  removeTravelRequest,
   ensureRequesterProfile,
   listClients,
   listCosts,
@@ -250,6 +252,9 @@ function AuthenticatedApp({ profile }) {
   const [active, setActive] = useState("dashboard");
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState(null);
+  const [editingRequest, setEditingRequest] = useState(null);
+  const [requestToRemove, setRequestToRemove] = useState(null);
+  const [removingRequest, setRemovingRequest] = useState(false);
   const [requests, setRequests] = useState([]);
   const [collaborators, setCollaborators] = useState([]);
   const [clients, setClients] = useState([]);
@@ -310,7 +315,7 @@ function AuthenticatedApp({ profile }) {
     refreshRequests(); refreshCollaborators(); refreshCatalogs(); refreshCosts(); refreshReports(); refreshAttachments();
   }, []);
 
-  async function handleSaveRequest(form, intent = "draft") {
+  async function handleSaveRequest(form, intent = "draft", requestId = null) {
     try {
       const sameName = (left, right) => String(left || "").trim().toLocaleLowerCase("pt-BR")
         === String(right || "").trim().toLocaleLowerCase("pt-BR");
@@ -342,18 +347,53 @@ function AuthenticatedApp({ profile }) {
       const requestForm = { ...form, client_id: clientId, contract_id: contractId };
       delete requestForm.client_name;
       delete requestForm.contract_name;
-      const request = await createTravelRequest(requestForm, intent === "send" ? "submitted" : "draft");
+
+      let createdRequest = null;
+      if (requestId) {
+        await updateTravelRequest(requestId, requestForm);
+      } else {
+        createdRequest = await createTravelRequest(requestForm, intent === "send" ? "submitted" : "draft");
+      }
+
       setModal(null);
-      await refreshRequests();
-      if (intent === "send") {
+      setEditingRequest(null);
+      await Promise.all([refreshRequests(), refreshCosts(), refreshReports()]);
+      if (requestId) {
+        setNotice("Solicitação atualizada. As alterações foram registradas no histórico.");
+      } else if (intent === "send") {
         setNotice("Solicitação registrada. Revise o e-mail preparado e clique em Enviar para encaminhar.", {
           label: "Abrir e-mail",
-          href: buildTravelRequestMailto({ form: requestForm, request, profile, clients: requestClients, contracts: requestContracts, collaborators })
+          href: buildTravelRequestMailto({ form: requestForm, request: createdRequest, profile, clients: requestClients, contracts: requestContracts, collaborators })
         });
       } else {
         setNotice("Solicitação criada como rascunho.");
       }
     } catch (error) { setNotice(error.message || "Não foi possível salvar a solicitação."); }
+  }
+
+  function openNewRequest() {
+    setEditingRequest(null);
+    setModal("request");
+  }
+
+  async function handleEditRequest(request) {
+    try {
+      const linkedCollaborators = await listTravelRequestCollaborators(request.id);
+      setEditingRequest({ ...request, collaborator_ids: linkedCollaborators.map(person => person.id) });
+      setModal("request");
+    } catch (error) { setNotice(error.message || "Não foi possível carregar a solicitação para edição."); }
+  }
+
+  async function handleConfirmRemoveRequest() {
+    if (!requestToRemove || removingRequest) return;
+    setRemovingRequest(true);
+    try {
+      await removeTravelRequest(requestToRemove.id);
+      setRequestToRemove(null);
+      await Promise.all([refreshRequests(), refreshCosts(), refreshReports(), refreshAttachments()]);
+      setNotice("Solicitação removida das listas ativas. Custos, anexos e histórico foram preservados.");
+    } catch (error) { setNotice(error.message || "Não foi possível remover a solicitação."); }
+    finally { setRemovingRequest(false); }
   }
 
   async function handleSaveCost(form) {
@@ -398,8 +438,8 @@ function AuthenticatedApp({ profile }) {
       </header>
 
       {notice && <div className="global-notice" role="status" aria-live="polite"><span>{notice}</span>{noticeAction && <a className="notice-action" href={noticeAction.href} target="_blank" rel="noopener noreferrer" aria-label="Abrir e-mail preparado para viagens@broadtec.com.br">{noticeAction.label}</a>}<button aria-label="Fechar aviso" onClick={() => setNotice("")}>×</button></div>}
-      {active === "dashboard" && <Dashboard requests={requests} costs={costs} search={search} setSearch={setSearch} onNew={() => setModal("request")} />}
-      {active === "requests" && <Requests requests={requests} search={search} setSearch={setSearch} onNew={() => setModal("request")} />}
+      {active === "dashboard" && <Dashboard requests={requests} costs={costs} search={search} setSearch={setSearch} onNew={openNewRequest} />}
+      {active === "requests" && <Requests requests={requests} search={search} setSearch={setSearch} onNew={openNewRequest} profile={profile} onEdit={handleEditRequest} onRemove={setRequestToRemove} />}
       {active === "people" && <People collaborators={collaborators} search={search} setSearch={setSearch} onNew={canManage ? () => setModal("people") : undefined} />}
       {active === "costs" && <Costs costs={costs} requests={requests} collaborators={collaborators} canManage={canManage} refreshVersion={costRefreshVersion} onCostsUpdated={async () => { await Promise.all([refreshCosts(), refreshReports()]); }} onNew={canManage ? () => setModal("cost") : undefined} onServices={canManage ? () => setModal("services") : undefined} />}
       {active === "reports" && <Reports reports={reports} costs={costs} collaborators={collaborators} clients={clients} contracts={contracts} />}
@@ -409,7 +449,8 @@ function AuthenticatedApp({ profile }) {
       {!["dashboard", "requests", "people", "costs", "reports", "files", "dossier", "history"].includes(active) && <Section title={title} />}
     </main>
 
-    {modal === "request" && <RequestModal clients={clients} contracts={contracts} collaborators={collaborators} onClose={() => setModal(null)} onSave={handleSaveRequest} />}
+    {modal === "request" && <RequestModal clients={clients} contracts={contracts} collaborators={collaborators} request={editingRequest} onClose={() => { setModal(null); setEditingRequest(null); }} onSave={(form, intent, requestId) => handleSaveRequest(form, intent, requestId)} />}
+    {requestToRemove && <ConfirmRemovalModal request={requestToRemove} busy={removingRequest} onClose={() => !removingRequest && setRequestToRemove(null)} onConfirm={handleConfirmRemoveRequest} />}
     {modal === "people" && <CollaboratorModal onClose={() => setModal(null)} onSave={handleSaveCollaborator} />}
     {modal === "cost" && <CostModal requests={requests} collaborators={collaborators} onClose={() => setModal(null)} onSave={handleSaveCost} />}
     {modal === "services" && <ServiceModal requests={requests} collaborators={collaborators} onClose={() => setModal(null)} onSave={async (type, payload) => { try { if (type === "meal-batch") { const result = await generateMealsForRequest(payload.travel_request_id); setNotice(result.created ? result.created + " refeições geradas automaticamente para a OS." : "As refeições da OS já estavam compostas."); setModal(null); return; } await saveTravelService(type, payload); setNotice("Serviço registrado. A composição da OS foi atualizada."); setCostRefreshVersion(v => v + 1); await refreshCosts(); setModal(null); } catch (error) { setNotice(error.message || "Não foi possível registrar o serviço."); } }} />}
@@ -475,15 +516,29 @@ function Dashboard({ requests, costs, search, setSearch, onNew }) {
   </section>;
 }
 
-function Requests({ requests, search, setSearch, onNew }) {
-  return <section className="content"><div className="welcome"><div><h2>Solicitações</h2><p>Consulta das OS vinculadas ao usuário autenticado.</p></div><button className="primary" onClick={onNew}>＋ Nova solicitação</button></div><RequestsTable requests={requests} search={search} setSearch={setSearch} /></section>;
+function Requests({ requests, search, setSearch, onNew, profile, onEdit, onRemove }) {
+  return <section className="content"><div className="welcome"><div><h2>Solicitações</h2><p>Consulte e atualize as OS que você pode editar.</p></div><button className="primary" onClick={onNew}>＋ Nova solicitação</button></div><RequestsTable requests={requests} search={search} setSearch={setSearch} profile={profile} onEdit={onEdit} onRemove={onRemove} /></section>;
 }
 
-function RequestsTable({ requests, search, setSearch }) {
+function RequestsTable({ requests, search, setSearch, profile, onEdit, onRemove }) {
   const filtered = requests.filter((r) => [r.os, r.client?.name, r.city, r.state, r.origin, r.job_site_address, r.manager_name, r.status].join(" ").toLowerCase().includes(search.toLowerCase()));
+  const showActions = profile?.role === "admin" || profile?.role === "requester";
   return <article className="panel wide"><div className="panel-head"><div><h3>Solicitações</h3><p>{filtered.length} registro(s) encontrado(s)</p></div><div className="search"><span>⌕</span><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Pesquisar OS, cliente..." aria-label="Pesquisar" /></div></div>
-    <div className="table-wrap"><table><thead><tr><th>OS</th><th>Cliente</th><th>Destino</th><th>Período</th><th>Status</th></tr></thead><tbody>
-      {filtered.length ? filtered.map((r) => { const [label, cls, icon] = statusMap[r.status] || [r.status, "info", "●"]; return <tr key={r.id}><td><b>{r.os}</b></td><td>{r.client?.name || "—"}</td><td>{[r.city, r.state].filter(Boolean).join(" - ") || "—"}</td><td>{formatDate(r.start_date)} — {formatDate(r.end_date)}</td><td><span className={"badge " + cls}><i>{icon}</i>{label}</span></td></tr>; }) : <tr><td colSpan="5" className="table-empty">Nenhuma solicitação encontrada.</td></tr>}
+    <div className="table-wrap"><table><thead><tr><th>OS</th><th>Cliente</th><th>Destino</th><th>Período</th><th>Status</th>{showActions && <th>Ações</th>}</tr></thead><tbody>
+      {filtered.length ? filtered.map((r) => {
+        const [label, cls, icon] = statusMap[r.status] || [r.status, "info", "●"];
+        const canEdit = profile?.role === "admin" || (profile?.role === "requester" && r.requester_id === profile.id);
+        const canRemove = profile?.role === "admin";
+        return <tr key={r.id}>
+          <td><b>{r.os}</b></td><td>{r.client?.name || "—"}</td><td>{[r.city, r.state].filter(Boolean).join(" - ") || "—"}</td>
+          <td>{formatDate(r.start_date)} — {formatDate(r.end_date)}</td><td><span className={"badge " + cls}><i>{icon}</i>{label}</span></td>
+          {showActions && <td><div className="request-actions">
+            {canEdit && <button type="button" className="secondary request-action" onClick={() => onEdit?.(r)}>Editar</button>}
+            {canRemove && <button type="button" className="request-remove" onClick={() => onRemove?.(r)}>Remover</button>}
+            {!canEdit && <span className="helper">—</span>}
+          </div></td>}
+        </tr>;
+      }) : <tr><td colSpan={showActions ? "6" : "5"} className="table-empty">Nenhuma solicitação encontrada.</td></tr>}
     </tbody></table></div>
   </article>;
 }
@@ -877,11 +932,21 @@ function Section({ title }) {
   return <section className="content"><div className="welcome"><div><h2>{title}</h2><p>Módulo preparado para integração com os dados da plataforma.</p></div></div><article className="panel empty"><div className="empty-icon">□</div><h3>Próxima etapa</h3><p>Este módulo será conectado às tabelas e permissões do Supabase.</p></article></section>;
 }
 
-function RequestModal({ clients, contracts, collaborators, onClose, onSave }) {
-  const [form, setForm] = useState({ os: "", client_id: "", contract_id: "", state: "", city: "", origin: "", job_site_address: "", manager_name: "", hotel_quote_requested: false, vehicle_quote_requested: false, meal_extra_payment: false, taxi_uber_requested: false, notebook_loan_requested: false, vacation_status: "pending", start_date: "", end_date: "", collaborator_ids: [] });
+function RequestModal({ clients, contracts, collaborators, request = null, onClose, onSave }) {
+  const [form, setForm] = useState(() => ({
+    os: request?.os || "", client_id: request?.client_id || "", contract_id: request?.contract_id || "",
+    state: request?.state || "", city: request?.city || "", origin: request?.origin || "",
+    job_site_address: request?.job_site_address || "", manager_name: request?.manager_name || "",
+    hotel_quote_requested: Boolean(request?.hotel_quote_requested), vehicle_quote_requested: Boolean(request?.vehicle_quote_requested),
+    meal_extra_payment: Boolean(request?.meal_extra_payment), taxi_uber_requested: Boolean(request?.taxi_uber_requested),
+    notebook_loan_requested: Boolean(request?.notebook_loan_requested), vacation_status: request?.vacation_status || "pending",
+    start_date: request?.start_date || "", end_date: request?.end_date || "", collaborator_ids: request?.collaborator_ids || []
+  }));
   const [busyAction, setBusyAction] = useState("");
-  const [clientQuery, setClientQuery] = useState("");
-  const [contractQuery, setContractQuery] = useState("");
+  const [clientQuery, setClientQuery] = useState(() => request?.client?.name || clients.find(client => client.id === request?.client_id)?.name || "");
+  const [contractQuery, setContractQuery] = useState(() => request?.contract
+    ? [request.contract.code, request.contract.name].filter(Boolean).join(" — ")
+    : contracts.find(contract => contract.id === request?.contract_id)?.name || "");
   const [contractOptions, setContractOptions] = useState(contracts);
   const set = (key, value) => setForm((current) => ({ ...current, [key]: value }));
 
@@ -902,17 +967,18 @@ function RequestModal({ clients, contracts, collaborators, onClose, onSave }) {
   async function submit(event) {
     event.preventDefault();
     if (!form.os || !form.start_date || !form.end_date || form.end_date < form.start_date) return;
-    const intent = event.nativeEvent.submitter?.value === "send" ? "send" : "draft";
+    const intent = request ? "edit" : event.nativeEvent.submitter?.value === "send" ? "send" : "draft";
     setBusyAction(intent);
     await onSave({
       ...form,
       client_name: form.client_id ? "" : clientQuery.trim(),
       contract_name: form.contract_id ? "" : contractQuery.trim()
-    }, intent);
+    }, intent, request?.id || null);
     setBusyAction("");
   }
 
-  return <ModalShell title="Nova solicitação de viagem" onClose={onClose}><form onSubmit={submit}>
+  return <ModalShell title={request ? "Editar solicitação de viagem" : "Nova solicitação de viagem"} onClose={onClose}><form onSubmit={submit}>
+    {request && <div className="notice" role="note">As alterações nesta solicitação serão registradas no histórico.</div>}
     <div className="form-grid">
       <Field label="OS" value={form.os} onChange={(v) => set("os", v)} required />
       <AutocompleteField
@@ -979,9 +1045,24 @@ function RequestModal({ clients, contracts, collaborators, onClose, onSave }) {
       <CheckField label="Utilização de táxi / Uber" checked={form.taxi_uber_requested} onChange={(v) => set("taxi_uber_requested", v)} />
       <CheckField label="Empréstimo de notebook" checked={form.notebook_loan_requested} onChange={(v) => set("notebook_loan_requested", v)} />
     </div><small className="helper">Essas opções registram necessidades da solicitação. O lançamento de custos continua sendo feito na composição da OS.</small></div>
-    <div className="form-section"><SelectField label="Previsão de férias próximo à viagem" value={form.vacation_status} onChange={(v) => set("vacation_status", v)} options={[["pending", "Verificar com o RH"], ["yes", "Sim"], ["no", "Não"]]} placeholder="Selecione" /><small className="helper">Ao enviar, a solicitação será registrada e um e-mail para viagens@broadtec.com.br ficará pronto para revisão e envio.</small></div>
-    <div className="modal-actions"><button type="button" className="secondary" onClick={onClose} disabled={Boolean(busyAction)}>Cancelar</button><button type="submit" className="secondary" value="draft" disabled={Boolean(busyAction)}>{busyAction === "draft" ? "Salvando..." : "Salvar rascunho"}</button><button type="submit" className="primary" value="send" disabled={Boolean(busyAction)}>{busyAction === "send" ? "Preparando envio..." : "Enviar solicitação"}</button></div>
+    <div className="form-section"><SelectField label="Previsão de férias próximo à viagem" value={form.vacation_status} onChange={(v) => set("vacation_status", v)} options={[["pending", "Verificar com o RH"], ["yes", "Sim"], ["no", "Não"]]} placeholder="Selecione" />{!request && <small className="helper">Ao enviar, a solicitação será registrada e um e-mail para viagens@broadtec.com.br ficará pronto para revisão e envio.</small>}</div>
+    <div className="modal-actions"><button type="button" className="secondary" onClick={onClose} disabled={Boolean(busyAction)}>Cancelar</button>{request
+      ? <button type="submit" className="primary" disabled={Boolean(busyAction)}>{busyAction === "edit" ? "Salvando alterações..." : "Salvar alterações"}</button>
+      : <><button type="submit" className="secondary" value="draft" disabled={Boolean(busyAction)}>{busyAction === "draft" ? "Salvando..." : "Salvar rascunho"}</button><button type="submit" className="primary" value="send" disabled={Boolean(busyAction)}>{busyAction === "send" ? "Preparando envio..." : "Enviar solicitação"}</button></>}</div>
   </form></ModalShell>;
+}
+
+function ConfirmRemovalModal({ request, busy, onClose, onConfirm }) {
+  return <ModalShell title="Remover solicitação" onClose={onClose}>
+    <div className="confirm-removal">
+      <p>Confirma a remoção da OS <strong>{request.os}</strong> das listas ativas?</p>
+      <p className="helper">O registro, os custos, os anexos e o histórico serão preservados para auditoria.</p>
+    </div>
+    <div className="modal-actions">
+      <button type="button" className="secondary" onClick={onClose} disabled={busy}>Cancelar</button>
+      <button type="button" className="request-remove" onClick={onConfirm} disabled={busy}>{busy ? "Removendo..." : "Remover solicitação"}</button>
+    </div>
+  </ModalShell>;
 }
 
 function CollaboratorModal({ onClose, onSave }) {
